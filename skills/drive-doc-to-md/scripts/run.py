@@ -45,7 +45,11 @@ def normalize_docx_md(raw):
 def cli(args, retry=3):
     """调用 lark-cli，返回 data 段；失败重试后返回 None"""
     for i in range(retry):
-        r = subprocess.run(['lark-cli'] + args, capture_output=True, text=True)
+        try:
+            r = subprocess.run(['lark-cli'] + args, capture_output=True, text=True)
+        except FileNotFoundError:
+            time.sleep(3)
+            continue
         if r.returncode == 0:
             try:
                 d = json.loads(r.stdout)
@@ -77,11 +81,16 @@ def norm_number_counter(text):
     return collections.Counter(NUM.findall(text))
 
 
+def safe_stem(stem):
+    """本地文件名安全化：云文档标题里可能带 '/'（如「卷3/3」），不能直接当路径"""
+    return stem.replace('/', '／').replace('\\', '＼')
+
+
 def convert_one(item, work, out_dir):
     """返回 (md_path, ref_path_or_text, ok, info)"""
     tok, name, typ = item['token'], item['name'], item['type']
     stem = re.sub(r'\.(pdf|PDF|md)$', '', name)
-    md_path = os.path.join(out_dir, stem + '.md')
+    md_path = os.path.join(out_dir, safe_stem(stem) + '.md')
     if typ == 'file' and name.lower().endswith(('.docx', '.doc')):
         src = os.path.join(work, tok + '.docx')
         if not os.path.exists(src):
@@ -132,8 +141,10 @@ def convert_one(item, work, out_dir):
     return None, None, False, {'error': 'unsupported_type'}
 
 
-def upload(folder, md_path):
-    d = cli(['markdown', '+create', '--folder-token', folder, '--file', md_path, '--format', 'json'])
+def upload(folder, md_path, name):
+    """--name 显式传云端原名（标题里可能有 '/'，本地文件名已安全化）"""
+    d = cli(['markdown', '+create', '--folder-token', folder, '--file', md_path,
+             '--name', name, '--format', 'json'])
     return (d or {}).get('file_token')
 
 
@@ -156,7 +167,11 @@ def move(tok, typ, bin_folder):
     args = ['drive', '+move', '--file-token', tok, '--folder-token', bin_folder,
             '--type', 'docx' if typ == 'docx' else 'file', '--format', 'json']
     for i in range(6):
-        r = subprocess.run(['lark-cli'] + args, capture_output=True, text=True)
+        try:
+            r = subprocess.run(['lark-cli'] + args, capture_output=True, text=True)
+        except FileNotFoundError:
+            time.sleep(3)
+            continue
         if r.returncode == 0:
             try:
                 if json.loads(r.stdout).get('ok'):
@@ -216,7 +231,7 @@ def main():
             continue
         rec['status'] = 'converted'
         if not rec.get('md_token'):
-            mt = upload(folder, md_path)
+            mt = upload(folder, md_path, name + '.md')
             if not mt:
                 print('UPLOAD_FAIL', stem)
                 bad += 1
