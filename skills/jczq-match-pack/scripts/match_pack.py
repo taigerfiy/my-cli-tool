@@ -440,3 +440,55 @@ def build(item, date_str):
         'league': None if national else layer4_league(lg),
         'play': layer4_play(lg), 'feat': layer5_feat(buckets), 'buckets': buckets,
     }, notes
+
+
+def nat_stats(rows, team_en):
+    if not rows:
+        return None
+    w = d = l = gf = ga = 0
+    for r in rows:
+        hg, ag = num(r.get('主队进球')), num(r.get('客队进球'))
+        if hg is None or ag is None:
+            continue
+        if txt(r.get('主队')) == team_en:
+            my, op = hg, ag
+        else:
+            my, op = ag, hg
+        gf += my
+        ga += op
+        if my > op:
+            w += 1
+        elif my == op:
+            d += 1
+        else:
+            l += 1
+    n = w + d + l
+    if not n:
+        return None
+    return {'n': n, 'w': w, 'd': d, 'l': l, 'gf': gf / n, 'ga': ga / n,
+            'first': txt(rows[-1].get('比赛日期'))[:10], 'last': txt(rows[0].get('比赛日期'))[:10]}
+
+
+def recent_stats(rows, team, side):
+    if not rows:
+        return None
+    w = d = l = gf = ga = 0
+    for r in rows:
+        hg, ag = num(r.get('主队进球')), num(r.get('客队进球'))
+        if hg is None or ag is None:
+            continue
+        my, op = (hg, ag) if side == 'home' else (ag, hg)
+        gf += my
+        ga += op
+        if my > op:
+            w += 1
+        elif my == op:
+            d += 1
+        else:
+            l += 1
+    n = w + d + l
+    if not n:
+        return None
+    return {'n': n, 'w': w, 'd': d, 'l': l,
+            'gf': gf / n, 'ga': ga / n,
+            'first': txt(rows[-1].get('比赛日期'))[:10], 'last': txt(rows[0].get('比赛日期'))[:10]}
