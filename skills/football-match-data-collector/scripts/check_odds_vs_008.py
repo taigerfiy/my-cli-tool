@@ -127,7 +127,7 @@ def parse_report(path):
 
             if section == "europe":
                 mean = cells[5]
-                values = [float(x) for x in re.findall(r"[0-9]+\." + "[0-9]+", mean)]
+                values = [float(x) for x in re.findall(r"[0-9]+\.[0-9]+", mean)]
                 if len(values) == 3:
                     entry["europe"][time_label] = values
             else:
