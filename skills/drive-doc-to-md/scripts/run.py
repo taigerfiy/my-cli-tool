@@ -16,6 +16,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS)
 import convert_core as cc
 import convert_results as cr
+import convert_notes as cn
 import gate
 
 NUM = re.compile(r'\d+(?:\.\d+)?')
@@ -69,10 +70,15 @@ def convert_one(item, work, out_dir):
             if not d or not os.path.exists(pdf):
                 return None, None, False, {'error': 'download_fail'}
         raw = cc.pdf_text(pdf)
+        pipe_lines = sum(1 for l in raw.split('\n') if l.strip().startswith('|'))
         if '全场比分' in raw and '半全场' in raw:
-            cr.main(pdf, md_path)          # 014 赛果流水（一行一场）
+            cr.main(pdf, md_path)                  # 014 赛果流水（一行一场）
+        elif pipe_lines >= 5:
+            cc.main(pdf, md_path)                  # 017 首发阵容（已是管道表）/ 7表格
+        elif '首发补充数据' in raw or '伤停/缺阵' in raw:
+            cn.main(pdf, md_path)                  # 017 补充叙述（纯文本条目）
         else:
-            cc.main(pdf, md_path)          # 7表格 / 历史战绩（表格型）
+            cc.main(pdf, md_path)                  # 7表格 / 历史战绩（表格型）
         info = gate.check(pdf, md_path)
         return md_path, pdf, info['ok'], info
     if typ == 'docx':
