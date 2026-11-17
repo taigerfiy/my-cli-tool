@@ -8,7 +8,7 @@
 用法示例：
   python3 run.py --folder <folder_token_or_url> --bin <bin_folder_token> --dry-run
   python3 run.py --folder <folder_token> --bin <bin_folder_token>
-  python3 run.py --folder <folder_token> --bin <bin_folder_token> --limit 5 --delay 1.5
+  python3 run.py --folder <folder_token> --bin <bin_folder_token> --limit 5
 """
 import argparse, collections, json, os, re, subprocess, sys, time
 
@@ -18,6 +18,7 @@ import convert_core as cc
 import convert_results as cr
 import convert_notes as cn
 import convert_word as cw
+import convert_goals as cgo
 import gate
 
 NUM = re.compile(r'\d+(?:\.\d+)?')
@@ -98,8 +99,13 @@ def convert_one(item, work, out_dir):
             if not d or not os.path.exists(pdf):
                 return None, None, False, {'error': 'download_fail'}
         raw = cc.pdf_text(pdf)
+        if len(raw.strip()) < 100:
+            # 无文本层（App 截图/扫描件）：不做猜测性 OCR，交回用户决定
+            return None, None, False, {'error': 'scanned_no_text', 'chars': len(raw.strip())}
         pipe_lines = sum(1 for l in raw.split('\n') if l.strip().startswith('|'))
-        if '全场比分' in raw and '半全场' in raw:
+        if '进球分布' in raw and '阵型数据' in raw:
+            cgo.main(pdf, md_path)                 # 002 进球分布与阵型（多场/份）
+        elif '全场比分' in raw and '半全场' in raw:
             cr.main(pdf, md_path)                  # 014 赛果流水（一行一场）
         elif pipe_lines >= 5:
             cc.main(pdf, md_path)                  # 017 首发阵容（已是管道表）/ 7表格
