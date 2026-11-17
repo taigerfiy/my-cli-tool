@@ -15,10 +15,10 @@ description: "竞彩足球赛前数据采集 Skill。用于比赛开赛前（T-7
 
 | 口令 | 解析出的动作 |
 |---|---|
-| `采 <日期> <编号…> [截点HH:MM]` | 本 Skill 主入口：逐场采集 11 个模块 → 出单场情报包 MD + 同期 facts JSON → 跑 `validate_intel.py` 校验 |
+| `采 <日期> <编号…> [截点HH:MM]` | 本 Skill 主入口：逐场采集 11 个模块 → 出单场情报包 MD + 同期 facts JSON + `odds_<编号>.json` → 跑 `validate_intel.py` 与 `check_odds_vs_008.py` |
 | `情报 <日期> <编号…> [截点HH:MM]` | 全链：本 Skill 采集校验后，交 `jczq-match-pack` 并入库内六层 + L7 合成一份包 |
-| `校验` | 只对当前 facts JSON 跑 `scripts/validate_intel.py`，FAIL 不得交付 |
-| `回归` | 只跑 `tests/run_regression.py`，退出码非 0 说明能力退化，先修再上批次 |
+| `校验` | 对当前 facts JSON 跑 `scripts/validate_intel.py`，再对 `odds_<编号>.json` 跑 `scripts/check_odds_vs_008.py`；任一 FAIL 不得交付 |
+| `回归` | 跑 `tests/run_regression.py` 与 `tests/run_odds_regression.py`，任一退出码非 0 说明能力退化，先修再上批次 |
 | `重采 <编号>` | 只补采指定场次，不动同批其他已交付包 |
 
 解析规则：
@@ -76,11 +76,20 @@ description: "竞彩足球赛前数据采集 Skill。用于比赛开赛前（T-7
 2. **来源分级**：L1 官方公告/官方首发/主帅发布会可单独确认；L2 通讯社与跟队记者需两条一致；L3 结构化伤病源、Transfermarkt 需与 L1/L2 互证；L4 聚合站与社媒只作线索，不入 facts。
 3. **伤停与阵容**：按 facts 协议落字段（见 `references/intel-facts.md`），至少包含 `status / source_url / observed_at / credibility / event_fingerprint`。同一事件只留一条，按 `event_fingerprint` 去重。
 4. **盘口**：按 `references/odds-collection.md` 走固定入口，初始与即时必须成对；至少对比 2 家公司，记录变盘方向与「竞彩-欧赔背离」等标记，只描述不判断；禁止去水、算返还率或写「诱盘」。
+   - **列序先自校**：大小球行三列按数值特征判序（盘口 2.5–5.0、水位 0.60–1.20），不得按位置硬解，否则大/小水位互换（`--columns` 可自校）。
+   - **时点必交叉校验**：页面无时间戳，「即时」列可能残留早段值。抓完必须与当日 `008` 同一场「不晚于采集时点的最近时点」比对，欧指 >3%、亚盘让球 ≥0.25 格或水位 ≥0.05、大小球盘口不等 → 判 `[STALE_*]`，该段不得交付、不得用于背离判定；大小球两水位与 008 正好互换 → 判 `[SWAP_TOTAL_WATER]` 并按 008 归位。
 5. **缺失处理**：缺失写"未获取"并附尝试过的来源，禁止脑补，禁止用射门数、控球率冒充 xG 或 PPDA 等未提供指标。
 
-校验脚本（必跑）：`python3 scripts/validate_intel.py <intel.json>`，五项断言不通过即 FAIL，不得交付。
+校验脚本（必跑，两道闸全过才交付）：
 
-改动本 Skill 自身（字段、枚举、阈值、脚本）后，先跑 `python3 tests/run_regression.py`：它用 261117 两场基准与一个违规样本回归，退出码非 0 说明能力退化，修好再上新批次。
+```bash
+python3 scripts/validate_intel.py <intel.json>                 # facts 五项断言
+python3 scripts/check_odds_vs_008.py --odds odds_006.json --report <008 终报>.md   # 盘口时点/列序
+```
+
+任一 FAIL 即不得交付。008 尚未生成时，`check_odds_vs_008.py` 输出「无法交叉校验」警告，盘口只作参考值、背离段整段写「未校验，不判定背离」。
+
+改动本 Skill 自身（字段、枚举、阈值、脚本）后，先跑两道回归：`python3 tests/run_regression.py`（facts 契约）与 `python3 tests/run_odds_regression.py`（盘口拦截，含 261117 的三份实跑样本），任一退出码非 0 说明能力退化，修好再上新批次。
 
 ### Step 4：输出原始数据包
 
@@ -88,6 +97,7 @@ description: "竞彩足球赛前数据采集 Skill。用于比赛开赛前（T-7
 
 - 主产物：`match_intel_YYYYMMDD_主队vs客队.md`（UTF-8、GFM 表格、数字不改写）
 - 配套 facts JSON：根对象带 `"schema": "v1"`；这份 JSON 与上面的 MD 一起构成对外交付单元，可直接作为 `--external` 传给 `jczq-match-pack`，由它并入库内六层合成一份完整赛前情报包
+- 配套盘口快照 `odds_<编号>.json`：`schema: "odds-v1"`，字段见 `references/odds-collection.md` §二点五；它是交叉校验与复盘的机读凭据，与 MD 同批交付
 - 派生：需要回测入库时才生成 CSV，字段参考 [assets/match-data-template.csv](assets/match-data-template.csv)
 - 回复中只给文件绝对路径 + 关键缺口，不粘贴整份表格
 
@@ -112,6 +122,8 @@ facts JSON 的根对象同样带 `"schema": "v1"`；交付前跑 `validate_intel
 - 每项数据的来源与 `observed_at`
 - 确认状态（`[确认]` / `[待确认]` / `[未获取]` / `[不适用]` / `[越界]`）
 - 第 9 模块盘口必须含「三方对照」固定段：竞彩 SP、欧指均值、亚盘共识的初始→即时数值与相对变动，并列出背离类型；无背离写「无背离」
+- 第 9 模块的「即时」值必须标注**校验状态与参照时点**（如「即时 0.94/0.90（已与 008 · 19:00 交叉校验，通过）」或「`[时点存疑]` 页面给 11:30 值，按 008 · 19:00 校正」）；未标状态的盘口值视为未校验
+- 大小球必须写全「盘口｜大｜小」三项，禁止只写盘口或只写一侧水位
 - 第 11 模块情报缺口：`completeness`、`missing[]`（含尝试来源）、未深挖项
 - 末尾"越界拒收"清单（有则列，无则写"无"）
 
@@ -124,4 +136,5 @@ facts JSON 的根对象同样带 `"schema": "v1"`；交付前跑 `validate_intel
 - 同一联赛多场比赛可批量采集，但每场单独输出数据包
 - C 级赛事允许 `facts` 为空，但 `missing` 必须写"未深挖（C 级）"
 - 采集到的盘口数据为初盘/中盘，临场终盘需在临场刷新环节重新记录
+- 盘口「即时」值不校时不写：「无时间戳 + 未与 008 交叉校验」的数值只能标 `[时点存疑]`，不得作为 L7 的即时盘、不得推出升降盘或欧亚背离
 - 赛后统计（控球、射门、xG 等）不得当作赛前特征使用，即使在同一比赛页面上一并出现
