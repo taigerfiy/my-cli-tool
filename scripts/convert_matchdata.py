@@ -1,0 +1,1 @@
+__FROM_FILE__scripts/convert_matchdata.py
