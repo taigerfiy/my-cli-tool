@@ -1,0 +1,30 @@
+{
+  "说明": "回归期望值。改完 SKILL.md / references / validate_intel.py 后跑 run_regression.py，任何一项不符即视为能力退化。",
+  "cases": [
+    {
+      "file": "cases/intel_261117_006_007.json",
+      "desc": "261117 两场实跑基准（已人工核验）",
+      "expect_exit": 0,
+      "expect_matches": 2,
+      "expect_facts": 17,
+      "expect_errors": 0,
+      "expect_warnings": 0,
+      "expect_completeness": {
+        "周二006 丹麦vs挪威": 0.92,
+        "周二007 威尔士vs葡萄牙": 0.88
+      }
+    },
+    {
+      "file": "cases/intel_invalid_demo.json",
+      "desc": "违规样本：缺 source_url、越界、指纹重复、低 completeness 空 missing",
+      "expect_exit": 1,
+      "expect_matches": 1,
+      "expect_facts": 3,
+      "expect_errors_min": 4,
+      "expect_warnings": 1,
+      "expect_completeness": {
+        "样例999 校验违规演示": 0.50
+      }
+    }
+  ]
+}

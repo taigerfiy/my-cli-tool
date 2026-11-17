@@ -1,0 +1,47 @@
+{
+  "schema": "v1",
+  "matches": [
+    {
+      "match_id": "样例999 校验违规演示",
+      "kickoff_at": "2026-11-18T03:45:00+08:00",
+      "collect_as_of": "2026-11-17T17:25:00+08:00",
+      "completeness": 0.50,
+      "missing": [],
+      "facts": [
+        {
+          "event_type": "player_unavailable",
+          "team": "样例",
+          "player": "球员甲",
+          "status": "confirmed_out",
+          "source_url": "",
+          "observed_at": "2026-11-17T10:00:00+08:00",
+          "source_level": "L2",
+          "credibility": 0.90,
+          "event_fingerprint": "demo-fp-1"
+        },
+        {
+          "event_type": "player_return",
+          "team": "样例",
+          "player": "球员乙",
+          "status": "expected_return",
+          "source_url": "https://example.com/b",
+          "observed_at": "2026-11-17T18:30:00+08:00",
+          "source_level": "L3",
+          "credibility": 0.70,
+          "event_fingerprint": "demo-fp-2"
+        },
+        {
+          "event_type": "coach_statement",
+          "team": "样例",
+          "player": "球员丙",
+          "status": "confirmed_out",
+          "source_url": "https://example.com/c",
+          "observed_at": "2026-11-17T09:00:00+08:00",
+          "source_level": "L3",
+          "credibility": 0.60,
+          "event_fingerprint": "demo-fp-1"
+        }
+      ]
+    }
+  ]
+}
