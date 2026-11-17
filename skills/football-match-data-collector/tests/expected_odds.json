@@ -1,0 +1,38 @@
+{
+  "说明": "盘口交叉校验回归期望值。改了 check_odds_vs_008.py 或 odds-collection.md 后跑 run_odds_regression.py，任何一项不符即视为拦截能力退化。",
+  "report": "cases/odds/008_fixture_261117.md",
+  "cases": [
+    {
+      "file": "cases/odds/odds_006_261117_ok.json",
+      "desc": "合规样本：采集 19:25，数值等于 19:00 时点",
+      "expect_exit": 0,
+      "expect_flags": []
+    },
+    {
+      "file": "cases/odds/odds_006_261117_stale.json",
+      "desc": "违规样本：页面残留 11:30 值（欧指/亚盘水位/大小球盘口三处滞后）",
+      "expect_exit": 1,
+      "expect_flags": [
+        "STALE_EU",
+        "STALE_WATER",
+        "STALE_TOTAL_LINE"
+      ]
+    },
+    {
+      "file": "cases/odds/odds_006_261117_swap.json",
+      "desc": "违规样本：21:05 抓取仍取早段值，且大小球大/小水位与 21:00 完全互换",
+      "expect_exit": 1,
+      "expect_flags": [
+        "STALE_EU",
+        "SWAP_TOTAL_WATER",
+        "STALE_TOTAL_LINE"
+      ]
+    },
+    {
+      "file": "cases/odds/odds_007_261117_ok.json",
+      "desc": "合规样本：007 受一球/球半全程未变，含受让负号解析（-1.25）",
+      "expect_exit": 0,
+      "expect_flags": []
+    }
+  ]
+}
