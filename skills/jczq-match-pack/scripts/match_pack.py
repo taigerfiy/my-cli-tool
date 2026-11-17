@@ -26,18 +26,18 @@
 import json, subprocess, sys, os, argparse, re
 
 BASE = os.environ.get('JCZQ_BASE1_TOKEN', '<base_token:base1>')
-T_MAIN = 'tbllopaKMIVIHU2p'      # 比赛核心主表
-T_001 = 'tbl7NdB6xpGty3wG'       # 赛前静态数据
-T_006 = 'tbli943KH8a8hNaY'       # 竞彩波动数据
-T_TEAM = 'tblogCk27fn7Jx3q'      # 球队画像
-T_XG = 'tblCrokB322Poyo7'        # xG实测画像
-T_H2H = 'tbl0FcdwqVD50ugC'       # 交锋画像
-T_RES = 'tblqNeegAn2as0gt'       # 联赛全量赛果
-T_LG = 'tblM1YVIBlfuxU4C'        # A级联赛统计
-T_PLAY = 'tblmsLYEbMzzOsi8'      # 玩法分布
-T_FEAT = 'tblowiU87Hosc4Nu'      # 赛前特征响应
-T_NAME = 'tblisjWesOVwl2We'      # 名称对照
-T_NAT = 'tblpOYpQqq4SsDkt'       # 国家队赛果库
+T_MAIN = 'tbllopaKMIVIHU2p'
+T_001 = 'tbl7NdB6xpGty3wG'
+T_006 = 'tbli943KH8a8hNaY'
+T_TEAM = 'tblogCk27fn7Jx3q'
+T_XG = 'tblCrokB322Poyo7'
+T_H2H = 'tbl0FcdwqVD50ugC'
+T_RES = 'tblqNeegAn2as0gt'
+T_LG = 'tblM1YVIBlfuxU4C'
+T_PLAY = 'tblmsLYEbMzzOsi8'
+T_FEAT = 'tblowiU87Hosc4Nu'
+T_NAME = 'tblisjWesOVwl2We'
+T_NAT = 'tblpOYpQqq4SsDkt'
 
 CN = {'周一': 1, '周二': 2, '周三': 3, '周四': 4, '周五': 5, '周六': 6, '周日': 7}
 
@@ -54,7 +54,6 @@ def cli(args):
 
 
 def dq(tid, dims=None, measures=None, filters=None, limit=500, sort=None):
-    """聚合查询，返回 [{alias: value}]"""
     dsl = {'datasource': {'type': 'table', 'table': {'tableId': tid}},
            'pagination': {'limit': limit}, 'shaper': {'format': 'flat'}}
     if dims:
@@ -80,7 +79,6 @@ _OP = {'is': '==', 'isNot': '!=', 'isGreater': '>', 'isLess': '<',
 
 
 def to_rl_filter(filt):
-    """data-query 过滤条件 → record-list 过滤条件"""
     if not filt:
         return None
     conds = []
@@ -93,7 +91,6 @@ def to_rl_filter(filt):
 
 
 def rl(tid, filt, fields, sort=None, limit=100):
-    """明细查询，返回 [{字段: 值}]"""
     args = ['+record-list', '--table-id', tid, '--format', 'json', '--limit', str(limit)]
     rf = to_rl_filter(filt)
     if rf:
@@ -118,7 +115,6 @@ _FCACHE = {}
 
 
 def get_fields(tid):
-    """表字段顺序（record-get 按此映射）"""
     if tid in _FCACHE:
         return _FCACHE[tid]
     r = subprocess.run(['lark-cli', 'base', '+field-list', '--base-token', BASE,
@@ -133,7 +129,6 @@ def get_fields(tid):
 
 
 def get_rec(tid, ids):
-    """按 record_id 读取，返回 {id: {字段: 值}}"""
     if not ids:
         return {}
     args = ['+record-get', '--table-id', tid, '--as', 'user', '--format', 'json']
@@ -154,7 +149,6 @@ def get_rec(tid, ids):
 
 
 def ids_of(v):
-    """link 字段 → record id 列表"""
     if not v:
         return []
     if isinstance(v, list):
@@ -178,7 +172,6 @@ def unified_key(date_str, no):
 
 
 def norm_name(n):
-    """别名→规范名（未收录则原样返回）"""
     r = rl(T_NAME, f_and([('别名', 'is', [n])]), ['别名', '规范名'], limit=5)
     if r:
         v = r[0].get('规范名')
@@ -216,7 +209,6 @@ def fmt(v, nd=2):
 # ---------------- 各层 ----------------
 
 def layer1_main(dk, home, away):
-    """主表记录（含 001/006 的 link record id）"""
     rows = rl(T_MAIN, f_and([('统一键', 'is', [dk])]),
               ['统一键', '竞彩编号', '联赛', '赛事等级', '主队', '客队', '让球数', '轮次',
                '比赛ID', '数据完整性', '赛前静态数据（001）', '竞彩波动数据（006）'], limit=3)
@@ -236,39 +228,30 @@ def layer1_006(ids):
 
 
 def layer2_team(home, away):
-    rows = dq(T_TEAM, dims=[('k', '画像键'), ('tm', '球队'), ('ha', '主客'), ('lg', '联赛'),
-                            ('w', '胜'), ('d', '平'), ('l', '负'), ('rate', '胜率'),
-                            ('gf', '场均进球'), ('ga', '场均失球'), ('gd', '净差'),
-                            ('sn', '样本场数'), ('w0', '窗口起'), ('w1', '窗口止'), ('tier', '胜率分档')],
-              measures=[('n', '画像键', 'count_all')],
+    dims = [('k', '画像键'), ('tm', '球队'), ('ha', '主客'), ('lg', '联赛'),
+            ('w', '胜'), ('d', '平'), ('l', '负'), ('rate', '胜率'),
+            ('gf', '场均进球'), ('ga', '场均失球'), ('gd', '净差'),
+            ('sn', '样本场数'), ('w0', '窗口起'), ('w1', '窗口止'), ('tier', '胜率分档')]
+    rows = dq(T_TEAM, dims=dims, measures=[('n', '画像键', 'count_all')],
               filters=f_and([('画像键', 'is', ['%s|主场' % home])]), limit=5)
-    rows2 = dq(T_TEAM, dims=[('k', '画像键'), ('tm', '球队'), ('ha', '主客'), ('lg', '联赛'),
-                             ('w', '胜'), ('d', '平'), ('l', '负'), ('rate', '胜率'),
-                             ('gf', '场均进球'), ('ga', '场均失球'), ('gd', '净差'),
-                             ('sn', '样本场数'), ('w0', '窗口起'), ('w1', '窗口止'), ('tier', '胜率分档')],
-               measures=[('n', '画像键', 'count_all')],
+    rows2 = dq(T_TEAM, dims=dims, measures=[('n', '画像键', 'count_all')],
                filters=f_and([('画像键', 'is', ['%s|客场' % away])]), limit=5)
     return rows + rows2
 
 
 def layer2_xg(home, away):
-    rows = dq(T_XG, dims=[('tm', '球队'), ('lg', '联赛'), ('xg', '场均xG'), ('xga', '场均xGa'),
-                          ('xgd', 'xG差'), ('gp', '进球减xG'), ('gl', '失球减xGa'),
-                          ('n6xg', '近6场xG'), ('n6xga', '近6场xGa'), ('n6g', '近6场进球'),
-                          ('sig', '信号'), ('upto', '数据截至'), ('sn', '场次')],
-              measures=[('n', '球队', 'count_all')],
+    dims = [('tm', '球队'), ('lg', '联赛'), ('xg', '场均xG'), ('xga', '场均xGa'),
+            ('xgd', 'xG差'), ('gp', '进球减xG'), ('gl', '失球减xGa'),
+            ('n6xg', '近6场xG'), ('n6xga', '近6场xGa'), ('n6g', '近6场进球'),
+            ('sig', '信号'), ('upto', '数据截至'), ('sn', '场次')]
+    rows = dq(T_XG, dims=dims, measures=[('n', '球队', 'count_all')],
               filters=f_and([('球队', 'is', [home])]), limit=5)
-    rows2 = dq(T_XG, dims=[('tm', '球队'), ('lg', '联赛'), ('xg', '场均xG'), ('xga', '场均xGa'),
-                           ('xgd', 'xG差'), ('gp', '进球减xG'), ('gl', '失球减xGa'),
-                           ('n6xg', '近6场xG'), ('n6xga', '近6场xGa'), ('n6g', '近6场进球'),
-                           ('sig', '信号'), ('upto', '数据截至'), ('sn', '场次')],
-               measures=[('n', '球队', 'count_all')],
+    rows2 = dq(T_XG, dims=dims, measures=[('n', '球队', 'count_all')],
                filters=f_and([('球队', 'is', [away])]), limit=5)
     return rows + rows2
 
 
 def layer2_recent(team, side, before_date, alt=None):
-    """近10场同主客：side=home 取该队作主队；side=away 取作客队；规范名查不到时用原名回退"""
     field = '主队' if side == 'home' else '客队'
     rows = []
     for t in ([team] + ([alt] if alt and alt != team else [])):
@@ -375,13 +358,8 @@ def is_national(lg):
 
 
 def layer2_national(team, before_date):
-    """国家队近10场（不分主客，国家队样本少）"""
     en = NAT_CN2EN.get(team, team)
-    filt = f_or([('主队', 'is', [en]), ('客队', 'is', [en])]) if False else f_and([('比赛日期', 'isLess', before_date)])
-    # 日期条件 + 队名用 or 组合
-    filt = {'type': 1, 'conjunction': 'and', 'conditions': [
-        {'field_name': '比赛日期', 'operator': 'isLess', 'value': before_date}]}
-    rows = rl(T_NAT, f_or([('主队', 'is', [en]), ('客队', 'is', [en])]), 
+    rows = rl(T_NAT, f_or([('主队', 'is', [en]), ('客队', 'is', [en])]),
               ['比赛日期', '赛事', '主队', '客队', '主队进球', '客队进球'],
               sort=[{'field': '比赛日期', 'desc': True}], limit=14)
     out = [r for r in rows if txt(r.get('比赛日期'))[:10] < before_date]
@@ -412,9 +390,9 @@ def build(item, date_str):
     rh = ra = []
     nat_en = ('', '')
     if national:
-        nat_en = (layer2_national(home, date_str)[0], layer2_national(away, date_str)[0])
-        rh = layer2_national(home, date_str)[1]
-        ra = layer2_national(away, date_str)[1]
+        e1, rh = layer2_national(home, date_str)
+        e2, ra = layer2_national(away, date_str)
+        nat_en = (e1, e2)
     else:
         rh = layer2_recent(home, 'home', date_str, item['home'])
         ra = layer2_recent(away, 'away', date_str, item['away'])
@@ -492,3 +470,72 @@ def recent_stats(rows, team, side):
     return {'n': n, 'w': w, 'd': d, 'l': l,
             'gf': gf / n, 'ga': ga / n,
             'first': txt(rows[-1].get('比赛日期'))[:10], 'last': txt(rows[0].get('比赛日期'))[:10]}
+
+
+NO_RE = re.compile(r'(周[一二三四五六日]\d{3})')
+L7_SECTIONS = ('5', '5.1', '9', '10', '11')
+
+
+def ext_no(text):
+    m = NO_RE.search(str(text or ''))
+    return m.group(1) if m else None
+
+
+def load_ext_md(path):
+    text = open(path, encoding='utf-8').read()
+    lines = text.split('\n')
+
+    head, no = {}, None
+    for line in lines[:14]:
+        if line.startswith('## '):
+            break
+        if '：' in line:
+            k, v = line.split('：', 1)
+            head[k.strip()] = v.strip()
+    no = ext_no(head.get('竞彩编号', ''))
+
+    secs, cur, buf = {}, None, []
+    for line in lines:
+        m = re.match(r'^## (\d+(?:\.\d+)?)[.\s]', line)
+        if m:
+            if cur:
+                secs[cur] = buf
+            cur, buf = m.group(1), [line]
+        elif line.startswith('## '):
+            if cur:
+                secs[cur] = buf
+            cur, buf = None, []
+        elif cur:
+            buf.append(line)
+    if cur:
+        secs[cur] = buf
+    return no, {'path': path, 'head': head, 'secs': secs}
+
+
+def load_external(paths):
+    merged = {}
+    for path in paths or []:
+        if not os.path.exists(path):
+            print('  [外部] 文件不存在，跳过：%s' % path)
+            continue
+        if path.lower().endswith('.json'):
+            payload = json.load(open(path, encoding='utf-8'))
+            schema = payload.get('schema') or '未标'
+            for m in payload.get('matches') or []:
+                no = ext_no(m.get('match_id'))
+                if not no:
+                    print('  [外部] facts 的 match_id 取不到编号，跳过：%s' % m.get('match_id'))
+                    continue
+                merged.setdefault(no, {})['facts'] = m
+                merged[no]['schema'] = schema
+            print('  [外部] %s 读入 facts %d 场' % (os.path.basename(path), len(payload.get('matches') or [])))
+        elif path.lower().endswith('.md'):
+            no, md = load_ext_md(path)
+            if not no:
+                print('  [外部] MD 取不到竞彩编号，跳过：%s' % path)
+                continue
+            merged.setdefault(no, {})['md'] = md
+            print('  [外部] %s 读入情报包 %s' % (os.path.basename(path), no))
+        else:
+            print('  [外部] 只接受 .json / .md，跳过：%s' % path)
+    return merged
