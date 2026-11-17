@@ -15,6 +15,7 @@ import argparse, collections, json, os, re, subprocess, sys, time
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS)
 import convert_core as cc
+import convert_results as cr
 import gate
 
 NUM = re.compile(r'\d+(?:\.\d+)?')
@@ -67,7 +68,11 @@ def convert_one(item, work, out_dir):
                      '--overwrite', '--format', 'json'])
             if not d or not os.path.exists(pdf):
                 return None, None, False, {'error': 'download_fail'}
-        cc.main(pdf, md_path)
+        raw = cc.pdf_text(pdf)
+        if '全场比分' in raw and '半全场' in raw:
+            cr.main(pdf, md_path)          # 014 赛果流水（一行一场）
+        else:
+            cc.main(pdf, md_path)          # 7表格 / 历史战绩（表格型）
         info = gate.check(pdf, md_path)
         return md_path, pdf, info['ok'], info
     if typ == 'docx':
