@@ -1,0 +1,15 @@
+{
+  "schema": "odds-v1",
+  "match_id": "周二006",
+  "captured_at": "2026-11-17T21:05:00+08:00",
+  "_note": "违规样本：21:05 抓取仍取到早段欧指，且大小球大/小水位与 21:00 完全互换",
+  "europe": {"initial": [2.27, 3.83, 2.73], "current": [2.28, 3.83, 2.73]},
+  "asian": {
+    "macau": {"initial": {"line": 0.0, "up": 0.84, "down": 1.00},
+              "current": {"line": 0.0, "up": 0.84, "down": 1.00}}
+  },
+  "total": {
+    "macau": {"initial": {"line": 3.0, "over": 0.76, "under": 1.04},
+              "current": {"line": 3.0, "over": 0.76, "under": 1.04}}
+  }
+}

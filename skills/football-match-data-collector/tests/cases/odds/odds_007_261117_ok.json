@@ -1,0 +1,4 @@
+{"schema":"odds-v1","match_id":"周二007","captured_at":"2026-11-17T19:25:00+08:00",
+ "europe":{"initial":[6.67,4.87,1.42],"current":[6.25,4.95,1.42]},
+ "asian":{"macau":{"initial":{"line":-1.25,"up":0.94,"down":0.90},"current":{"line":-1.25,"up":0.94,"down":0.90}}},
+ "total":{"macau":{"initial":{"line":3.25,"over":1.00,"under":0.80},"current":{"line":3.25,"over":1.00,"under":0.80}}}}

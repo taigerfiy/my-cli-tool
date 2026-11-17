@@ -1,0 +1,16 @@
+{
+  "schema": "odds-v1",
+  "match_id": "周二006",
+  "captured_at": "2026-11-17T19:25:00+08:00",
+  "_note": "违规样本：懂球帝页面残留 11:30 值，大小球按『盘口|大|小』误读",
+  "jcsp": {"initial": [2.40, 3.50, 2.29], "current": [2.38, 3.78, 2.20]},
+  "europe": {"initial": [2.27, 3.83, 2.73], "current": [2.28, 3.83, 2.73]},
+  "asian": {
+    "macau": {"initial": {"line": 0.0, "up": 0.84, "down": 1.00},
+              "current": {"line": 0.0, "up": 0.84, "down": 1.00}}
+  },
+  "total": {
+    "macau": {"initial": {"line": 3.0, "over": 0.76, "under": 1.04},
+              "current": {"line": 3.0, "over": 0.76, "under": 1.04}}
+  }
+}

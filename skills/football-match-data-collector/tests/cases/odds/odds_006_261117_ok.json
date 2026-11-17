@@ -1,0 +1,15 @@
+{
+  "schema": "odds-v1",
+  "match_id": "周二006",
+  "captured_at": "2026-11-17T19:25:00+08:00",
+  "_note": "合规样本：数值取自 008 的 19:00 时点，与采集时点一致",
+  "europe": {"initial": [2.27, 3.83, 2.73], "current": [2.52, 3.93, 2.45]},
+  "asian": {
+    "macau": {"initial": {"line": 0.0, "up": 0.84, "down": 1.00},
+              "current": {"line": 0.0, "up": 0.94, "down": 0.90}}
+  },
+  "total": {
+    "macau": {"initial": {"line": 3.25, "over": 0.96, "under": 0.84},
+              "current": {"line": 3.25, "over": 0.84, "under": 0.96}}
+  }
+}
