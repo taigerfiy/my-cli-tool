@@ -873,7 +873,7 @@ def render_l7(no, ext, out, miss, slim=True):
         if not body:
             continue
         title = body[0].lstrip('# ').strip()
-        out.append('\n**外部 · %s**（源 %s）\n' % (title, os.path.basename(md.get('path', '')))
+        out.append('\n**外部 · %s**（源 %s）\n' % (title, os.path.basename(md.get('path', ''))))
         skip_note = False
         for line in body[1:]:
             if slim and sec == '9':
