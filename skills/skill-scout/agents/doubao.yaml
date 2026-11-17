@@ -1,0 +1,7 @@
+interface:
+  display_name: "技能侦察"
+  short_description: "按上下文匹配已装技能，判断外部候选该不该装"
+  default_prompt: "使用 $skill-scout 帮我完成……"
+
+policy:
+  allow_implicit_invocation: true
