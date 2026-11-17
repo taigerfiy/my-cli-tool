@@ -109,6 +109,8 @@ def main():
     ng = grams(a.need)
     ranked = []
     for r in rows:
+        if r["name"] == "skill-scout":      # 不把侦察技能自己算进候选
+            continue
         g = grams(r["desc"] + " " + r["display"] + " " + r["name"].replace("-", " "))
         s, hit = score(ng, g)
         if s > 0:
