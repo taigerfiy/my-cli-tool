@@ -1,6 +1,6 @@
 ---
 name: drive-doc-to-md
-description: 飞书/豆包云盘文件夹「批量转 Markdown 并归档原件」流水线。当用户要求把云盘某个文件夹（001 竞彩7表格、014 赛果、017 首发、002 进球分布、008 赔率等）里的 PDF / Word 在线文档批量转成 .md、一对一同名转换、转完把原件移到「回收站」时使用。内置数字级保真闸门：数字多重集必须与源文件完全一致，否则阻断该份的上传与归档。
+description: 飞书/豆包云盘文件夹「批量转 Markdown 并归档原件」流水线。当用户要求把云盘某个文件夹（001 竞彩7表格、014 赛果、017 首发、002 进球分布、008 赔率时间线等）里的 PDF / Word 在线文档批量转成 .md、一对一同名转换、转完把原件移到「回收站」时使用。内置数字级保真闸门：数字多重集必须与源文件完全一致，否则阻断该份的上传与归档。
 metadata:
   requires:
     bins: ["lark-cli", "pdftotext"]
@@ -13,7 +13,7 @@ metadata:
 ## 什么时候用
 
 - "对云盘 X 文件夹做 md 转化"、"一对一转化"、"转完原件全部移到回收站"
-- 竞彩各目录（001 7表格、014 赛果清单、017 首发、002 进球分布、008 赔率报告…）的格式迁移
+- 竞彩各目录（001 7表格、014 赛果清单、017 首发、002 进球分布、008 赔率时间线…）的格式迁移
 - 只需要"看内容"时不要用本 skill：单份读取用 `lark-cli drive +fetch` / `docs +fetch` 即可
 
 ## 铁律
@@ -64,6 +64,12 @@ python3 <skill>/scripts/run.py --folder <folder_token> --bin <回收站> --keep-
 
 无文本层（App 截图拼成的 PDF，`pdftotext` 只出个位数）一律 `scanned_no_text` 失败并保留原件，不做猜测性 OCR。
 
+## 008 赔率时间线（在线文档主体）
+
+008 目录以 239 份在线文档（docx）为主，内容是每日赔率时间线与完整版报告，本身就是 Markdown 排版。走 `docs +fetch --doc-format markdown` → `normalize_docx_md()`（去 `<title>`、`|---|` 统一成 `| :--- |`），数字多重集比对原样通过。
+
+两个坑：① 部分标题带 `/`（如「261023赔率数据完整版报告 卷3/3」），直接当本地文件名会变成子目录 → `safe_stem()` 把 `/`、`\` 换成全角字符，上传时用 `--name` 显式传回原名；② 后台批量跑时 `lark-cli` 偶发不在 PATH（`FileNotFoundError`），成片的 `docx_fetch_fail` 其实不是限流而是这个原因——批量前把 `PATH=/home/user/vm/resource-loader/bin:$PATH` 显式带上，`cli()` 现已对 `FileNotFoundError` 做退避重试。
+
 ## 失败处理
 
 | 现象 | 处理 |
@@ -73,6 +79,7 @@ python3 <skill>/scripts/run.py --folder <folder_token> --bin <回收站> --keep-
 | 回读校验 FAIL | 删除刚上传的 MD（`drive +delete`，需用户确认）后重来 |
 | 无文本层 / 扫描件 | 判 `scanned_no_text`，保留原件不归档，报给用户决定是否 OCR |
 | docx 返回空 | 多为空文档或权限不足，报给用户 |
+| lark-cli 找不到 | 先把 PATH 带上绝对路径再重跑，不要当成限流反复重试 |
 
 ## 收尾报告
 
