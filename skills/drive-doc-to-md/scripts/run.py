@@ -8,7 +8,7 @@
 用法示例：
   python3 run.py --folder <folder_token_or_url> --bin <bin_folder_token> --dry-run
   python3 run.py --folder <folder_token> --bin <bin_folder_token>
-  python3 run.py --folder <folder_token> --bin <bin_folder_token> --limit 5
+  python3 run.py --folder <folder_token> --bin <bin_folder_token> --limit 5 --delay 1.5
 """
 import argparse, collections, json, os, re, subprocess, sys, time
 
@@ -17,9 +17,28 @@ sys.path.insert(0, SCRIPTS)
 import convert_core as cc
 import convert_results as cr
 import convert_notes as cn
+import convert_word as cw
 import gate
 
 NUM = re.compile(r'\d+(?:\.\d+)?')
+
+TITLE_TAG = re.compile(r'<title>.*?</title>', re.S)
+DELIM_ROW = re.compile(r'^\|\s*(?:[-:]+\s*\|)+$')
+
+
+def normalize_docx_md(raw):
+    """飞书在线文档导出的 Markdown 规范化：去 <title> 标签、表头分隔行统一成 GFM（不动任何数字）"""
+    md = TITLE_TAG.sub('', raw)
+    out = []
+    for line in md.split('\n'):
+        st = line.strip()
+        if DELIM_ROW.match(st):
+            n = len([c for c in st.strip('|').split('|')])
+            out.append('| ' + ' | '.join([':---'] * n) + ' |')
+        else:
+            out.append(line)
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(out)).strip() + '\n'
+
 
 
 def cli(args, retry=3):
@@ -62,6 +81,15 @@ def convert_one(item, work, out_dir):
     tok, name, typ = item['token'], item['name'], item['type']
     stem = re.sub(r'\.(pdf|PDF|md)$', '', name)
     md_path = os.path.join(out_dir, stem + '.md')
+    if typ == 'file' and name.lower().endswith(('.docx', '.doc')):
+        src = os.path.join(work, tok + '.docx')
+        if not os.path.exists(src):
+            d = cli(['drive', '+download', '--file-token', tok, '--output', src,
+                     '--overwrite', '--format', 'json'])
+            if not d or not os.path.exists(src):
+                return None, None, False, {'error': 'download_fail'}
+        info = cw.main(src, md_path)
+        return md_path, src, info['ok'], info
     if typ in ('file', 'docx') and name.lower().endswith('.pdf'):
         pdf = os.path.join(work, tok + '.pdf')
         if not os.path.exists(pdf):
@@ -78,21 +106,23 @@ def convert_one(item, work, out_dir):
         elif '首发补充数据' in raw or '伤停/缺阵' in raw:
             cn.main(pdf, md_path)                  # 017 补充叙述（纯文本条目）
         else:
-            cc.main(pdf, md_path)                  # 7表格 / 历史战绩（表格型）
+            cc.main(pdf, md_path)                  # 7表格 / 历史战绩 / 报告类（严格零差异优先）
         info = gate.check(pdf, md_path)
         return md_path, pdf, info['ok'], info
     if typ == 'docx':
-        d = cli(['docs', '+fetch', '--doc', tok, '--doc-format', 'markdown', '--format', 'json'])
+        d = cli(['docs', '+fetch', '--doc', tok, '--doc-format', 'markdown', '--format', 'json'], retry=5)
         if not d:
             return None, None, False, {'error': 'docx_fetch_fail'}
         raw = (d.get('document') or {}).get('content') or ''
         if not raw.strip():
             return None, None, False, {'error': 'docx_empty'}
-        md, _ = cc.convert(raw)
+        # 在线文档导出本身就是 Markdown，只做轻量规范化（去 <title>、表头分隔行统一），不再二次加工
+        ref = TITLE_TAG.sub('', raw)
+        md = normalize_docx_md(raw)
         open(md_path, 'w', encoding='utf-8').write(md)
-        a, b = norm_number_counter(raw), norm_number_counter(md)
+        a, b = norm_number_counter(ref), norm_number_counter(md)
         ok = (a == b)
-        return md_path, raw, ok, {'ok': ok, 'num_diff': dict(list((a - b).items())[:10])}
+        return md_path, ref, ok, {'ok': ok, 'num_diff': dict(list((a - b).items())[:10])}
     return None, None, False, {'error': 'unsupported_type'}
 
 
@@ -110,13 +140,25 @@ def verify(md_token, tmp, ref):
     txt = open(tmp, encoding='utf-8').read()
     if ref.endswith('.pdf'):
         return gate.check(ref, tmp)['ok']
+    if ref.endswith('.docx'):
+        return cw.check(ref, tmp)['ok']
     return norm_number_counter(txt) == norm_number_counter(ref)
 
 
 def move(tok, typ, bin_folder):
+    """移动原件；服务端偶发 1061001，单独用长退避重试"""
     args = ['drive', '+move', '--file-token', tok, '--folder-token', bin_folder,
             '--type', 'docx' if typ == 'docx' else 'file', '--format', 'json']
-    return cli(args) is not None
+    for i in range(6):
+        r = subprocess.run(['lark-cli'] + args, capture_output=True, text=True)
+        if r.returncode == 0:
+            try:
+                if json.loads(r.stdout).get('ok'):
+                    return True
+            except Exception:
+                pass
+        time.sleep(5 + 5 * i)
+    return False
 
 
 def main():
@@ -127,12 +169,14 @@ def main():
     ap.add_argument('--keep-originals', action='store_true', help='不移动原件')
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--delay', type=float, default=0.0, help='每份之间的间隔秒数（限流时用）')
     args = ap.parse_args()
 
     folder = args.folder.rstrip('/').split('/')[-1]
     allf = list_files(folder)
     files = [f for f in allf
-             if (f['type'] == 'docx') or (f['type'] == 'file' and f['name'].lower().endswith('.pdf'))]
+             if (f['type'] == 'docx')
+             or (f['type'] == 'file' and f['name'].lower().endswith(('.pdf', '.docx', '.doc')))]
     existing_md = {re.sub(r'\.md$', '', f['name']) for f in allf
                    if f['type'] == 'file' and f['name'].lower().endswith('.md')}
     skipped = [f for f in allf if f not in files]
@@ -172,6 +216,7 @@ def main():
                 bad += 1
                 continue
             rec['md_token'] = mt
+            json.dump(st, open(state_path, 'w'), ensure_ascii=False, indent=1)
         if not rec.get('verified'):
             tmp = os.path.join(args.work, 'rb_%s.md' % tok)
             if not verify(rec['md_token'], tmp, ref):
@@ -179,6 +224,7 @@ def main():
                 bad += 1
                 continue
             rec['verified'] = True
+            json.dump(st, open(state_path, 'w'), ensure_ascii=False, indent=1)
         if not args.keep_originals and not rec.get('moved'):
             if not move(tok, typ, args.bin):
                 print('MOVE_FAIL', stem)
@@ -188,6 +234,8 @@ def main():
         json.dump(st, open(state_path, 'w'), ensure_ascii=False, indent=1)
         ok += 1
         print('DONE', stem)
+        if args.delay:
+            time.sleep(args.delay)
     print('summary ok=%d bad=%d' % (ok, bad))
 
 
