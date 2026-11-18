@@ -6,18 +6,18 @@ from datetime import datetime
 
 BASE_TOKEN = 'FsnQbGerEalbfBsmWFScFJtTnwe'
 T_LEDGER = 'tblJiIkjupGhRBia'
-T_PLAYER = 'tbljM91PlcjzpNW2'
+T_PLAYER = 'tbl6o4arP72RKhhL'  # 球员档案（已并入首发连续性，联赛/欧战分列字段）
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALIAS_PATH = os.path.join(SKILL_DIR, 'assets', 'alias_map.json')
 LEADER_FIELDS = ['联赛', '赛季', '轮次', '球队', '主客', '对手', '比分', '赛果', '开赛时间',
                  '休息天数', '阵型', '教练', '延续人数', '轮换人数', '延续率', '确定缺阵',
                  '存疑', '停赛', '伤停原文', '首发人数', '位置结构']
-PLAYER_FIELDS = ['球员', '位置', '首发次数', '球队轮次', '首发率', '分级']
+PLAYER_FIELDS = ['规范名', '位置', '联赛首发次数', '联赛轮次', '联赛首发率', '联赛分级']
 
 
-def cli_read(table_id, team, fields):
-    """按 球队 等于 team 过滤读取，返回 dict 列表"""
-    filter_json = json.dumps({'logic': 'and', 'conditions': [['球队', '==', team]]}, ensure_ascii=False)
+def cli_read(table_id, team, fields, key_field='球队'):
+    """按 key_field 等于 team 过滤读取，返回 dict 列表"""
+    filter_json = json.dumps({'logic': 'and', 'conditions': [[key_field, '==', team]]}, ensure_ascii=False)
     cmd = ['lark-cli', 'base', '+record-list', '--base-token', BASE_TOKEN, '--table-id', table_id,
            '--as', 'user', '--format', 'json', '--limit', '200', '--filter-json', filter_json]
     for f in fields:
@@ -43,7 +43,6 @@ def cli_read(table_id, team, fields):
             return out
         if attempt == 2:
             raise RuntimeError(f'取数失败 {table_id} {team}: {cp.stdout[:200]} {cp.stderr[:200]}')
-        # 未取到记录也算成功但空
         if d is not None and d.get('ok') is False and 'not found' in str(d).lower():
             return []
     return []
@@ -55,11 +54,10 @@ def parse_dt(v):
     if isinstance(v, (int, float)):
         return datetime.fromtimestamp(v / 1000)
     s = str(v).replace('T', ' ')[:16]
-    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
-        try:
-            return datetime.strptime(s[:len('2026-01-01 00:00')], '%Y-%m-%d %H:%M')
-        except Exception:
-            pass
+    try:
+        return datetime.strptime(s[:16], '%Y-%m-%d %H:%M')
+    except Exception:
+        pass
     try:
         return datetime.strptime(s[:10], '%Y-%m-%d')
     except Exception:
@@ -78,7 +76,6 @@ def team_block(rows, players, match):
     lg = match.get('league')
     sub = [r for r in rows if r.get('联赛') == lg] if lg else []
     if not sub:
-        # 无指定联赛时取行数最多的联赛
         cnt = {}
         for r in rows:
             cnt[r.get('联赛')] = cnt.get(r.get('联赛'), 0) + 1
@@ -105,12 +102,10 @@ def team_block(rows, players, match):
         if (r.get('存疑') or 0) > 0 and r.get('伤停原文'):
             doubts.append(f"R{r.get('轮次')}: {r.get('伤停原文')}")
     o['doubts'] = doubts[-3:]
-    # 距本场休息
     kick = parse_dt(match.get('kick'))
     o['rest_to_match'] = None
     if kick and last and parse_dt(last.get('开赛时间')):
         o['rest_to_match'] = (kick.date() - parse_dt(last.get('开赛时间')).date()).days
-    # 欧战穿插（本场前 4 天内）
     o['europe'] = []
     if kick:
         for r in rows:
@@ -118,12 +113,11 @@ def team_block(rows, players, match):
                 k = parse_dt(r.get('开赛时间'))
                 if k and 0 <= (kick.date() - k.date()).days <= 4:
                     o['europe'].append(f"{r['联赛']} R{r.get('轮次')}（{k.strftime('%m-%d')}）")
-    # 球员
-    core = [p for p in players if s1(p.get('分级')) == '全勤核心']
-    top = sorted(players, key=lambda p: -(p.get('首发率') or 0))[:3]
+    core = [p for p in players if s1(p.get('联赛分级')) == '全勤核心']
+    top = sorted(players, key=lambda p: -(p.get('联赛首发率') or 0))[:3]
     o['core_cnt'] = len(core)
     o['player_total'] = len(players)
-    o['top3'] = [(p.get('球员'), s1(p.get('位置')) or '', p.get('首发率')) for p in top]
+    o['top3'] = [(p.get('规范名'), s1(p.get('位置')) or '', p.get('联赛首发率')) for p in top]
     return o
 
 
@@ -141,7 +135,7 @@ def risk(o):
         elif rest <= 5:
             score += 1; why.append(f"距本场休息 {rest} 天（+1）")
         elif rest < 0:
-            why.append(f"⚠开赛时间早于末轮，休息天数未计")
+            why.append("⚠开赛时间早于末轮，休息天数未计")
     if o.get('recent_out', 0) >= 4:
         score += 2; why.append(f"近 3 轮确定缺阵 {o['recent_out']} 人次（+2）")
     elif o.get('recent_out', 0) >= 2:
@@ -162,8 +156,8 @@ def render(matches, alias):
     L = []
     L.append('# 竞彩轮换风险卡（首发轮换台账）')
     L.append('')
-    L.append('- 数据源：Base1 轮换台账（球队×轮次）1282 条 / 球员首发连续性 3336 条（只读）')
-    L.append('- 口径：延续=与上轮首发重合，轮换=首发−延续，休息=同联赛相邻轮次日期差；跨赛事不合并')
+    L.append('- 数据源：Base1 轮换台账（球队×轮次）1282 条 / 球员档案（含首发连续性）2763 条（只读）')
+    L.append('- 口径：延续=与上轮首发重合，轮换=首发−延续，休息=同联赛相邻轮次日期差；跨赛事不合并；球员连续性取联赛口径')
     L.append('- 生成时间：' + datetime.now().strftime('%Y-%m-%d %H:%M'))
     L.append('')
     for m in matches:
@@ -175,7 +169,7 @@ def render(matches, alias):
         blocks = {}
         for nm, team in (('主', home), ('客', away)):
             rows = cli_read(T_LEDGER, team, LEADER_FIELDS)
-            pl = cli_read(T_PLAYER, team, PLAYER_FIELDS)
+            pl = cli_read(T_PLAYER, team, PLAYER_FIELDS, key_field='所属俱乐部')
             blocks[nm] = (team, team_block(rows, pl, m))
         L.append('| 指标 | 主（' + home + '） | 客（' + away + '） |')
         L.append('|---|---|---|')
@@ -217,7 +211,6 @@ def render(matches, alias):
             lvl, score, why = risk(o)
             L.append(f'- 轮换风险：**{lvl}**（{score} 分）｜' + '；'.join(why))
             L.append('')
-        # 风险要点
         L.append('#### 轮换风险点')
         for nm in ('主', '客'):
             team, o = blocks[nm]
@@ -258,14 +251,12 @@ def main():
         print('写出', a.out, len(md), '字符')
         return
     os.makedirs(a.out_dir, exist_ok=True)
-    n = 0
     chunks = [matches[i:i + a.max_per_file] for i in range(0, len(matches), a.max_per_file)]
     for i, ch in enumerate(chunks, 1):
         p = os.path.join(a.out_dir, f'chunk_{i}.md')
         open(p, 'w', encoding='utf-8').write(render(ch, alias))
-        n += 1
         print('写出', p)
-    print('共', n, '卷')
+    print('共', len(chunks), '卷')
 
 
 if __name__ == '__main__':
