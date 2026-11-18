@@ -47,7 +47,7 @@ Base token `FsnQbGerEalbfBsmWFScFJtTnwe`，身份一律 `--as user`。旧 token 
 
 轮换卡读「联赛」四字段；欧战四字段只用于「欧战穿插」判断，不参与联赛轮换率计算。
 
-> 旧表 `tbljM91PlcjzpNW2`（球员首发连续性，3336 条、按 `联赛-球队-球员` 一行）为合并前的历史快照，内容已全量并入档案表（3336 行核对 0 差异），保留仅作追溯，**任何脚本不要再读它**。
+> 旧表 `tbljM91PlcjzpNW2`（球员首发连续性，3336 条）已于 2026-11-18 删除：内容全量并入档案表（3336 行核对 0 差异），删除前已导出 ndjson 备份（`work_261117/old_player_continuity_backup.ndjson`）。若需追溯，用该备份或 011 的 `球员_全部.csv`，不要再引用该 table_id。
 
 ## 取数约定
 
