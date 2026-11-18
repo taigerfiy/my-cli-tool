@@ -1,0 +1,7 @@
+interface:
+  display_name: "首发轮换台账"
+  short_description: "按球队×轮次查轮换与伤停，出竞彩当日场次轮换风险卡"
+  default_prompt: "使用 $jczq-rotation-ledger 帮我完成……"
+
+policy:
+  allow_implicit_invocation: true
