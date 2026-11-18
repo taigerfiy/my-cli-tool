@@ -3,18 +3,18 @@
 """竞彩框架审计（Base2 读写闸）
 
 四个子命令：
-  status                全局状态卡：分层命中率 / 判断簿结算率 / 降权开关 / 累计样本
-  gate   [--sub 子层]   开工前先验：在 status 基础上加同子层近 N 条命中率与最近偏差类型
-  write  --file f.json  写入 S1/S2 判断（judgement_id 幂等，已存在则跳过）
-  settle --file f.json  结算 S3 判定（verdict + attrib），默认跳过已结算条目
+  status                全局状态卡：分层命中率 / 判断簿结算率 / 规则挂号覆盖 / 降权开关
+  gate   [--sub 子层]   开工前先验：status 全量 + 同子层命中率 + 最近偏差类型
+  write  --file f.json  写入 S1/S2 判断（judgement_id 幂等）
+  settle --file f.json  结算 S3 判定（verdict + attrib，默认跳过已结算）
 
-规则来源与字段契约见 references/schema.md，本脚本只执行查询与写入，不做判断。
+规则来源与字段契约见 references/schema.md。本脚本只执行查询与写入，不做判断。
 """
 import argparse
 import json
 import os
 import subprocess
-import sys
+
 
 def _load_token():
     """优先级：环境变量 JCZQ_BASE2_TOKEN → references/base2.token（本地，不随仓库发布）。"""
@@ -36,7 +36,7 @@ T_JUDGE = "tblSEPpqGH5xcq84"    # 判断簿
 T_STATE = "tbly1BxFnT2eSekR"    # 框架当前状态
 
 
-def cli(args, as_json=True):
+def cli(args):
     """调用 lark-cli；返回解析后的 JSON（失败抛 RuntimeError，带原始报错）。"""
     p = subprocess.run(["lark-cli"] + args, capture_output=True, text=True)
     out = (p.stdout or "").strip()
@@ -74,14 +74,11 @@ def records(table, filter_json, fields, limit=200):
     return out
 
 
-# ----------------------------- 状态卡 -----------------------------
-
 def layer_table():
-    rows = sql("SELECT COALESCE(子层标签,'(空)') AS tag, COUNT(*) AS n, "
+    return sql("SELECT COALESCE(子层标签,'(空)') AS tag, COUNT(*) AS n, "
                "SUM(CASE WHEN 方向是否命中='是' THEN 1 ELSE 0 END) AS hit, "
                "SUM(CASE WHEN 方向是否命中 IS NOT NULL THEN 1 ELSE 0 END) AS settled "
                "FROM 赛事明细 GROUP BY 子层标签 ORDER BY settled DESC")
-    return rows
 
 
 def judge_table():
@@ -99,26 +96,31 @@ def switches():
                "WHERE 项目 LIKE '%降权%' OR 项目 LIKE '%基线%' ORDER BY 项目 LIMIT 20")
 
 
+def rule_coverage():
+    return sql("SELECT COUNT(*) AS total, "
+               "SUM(CASE WHEN 规则触发 IS NOT NULL THEN 1 ELSE 0 END) AS rules, "
+               "SUM(CASE WHEN 临场信号 IS NOT NULL THEN 1 ELSE 0 END) AS sigs "
+               "FROM 赛事明细")[0]
+
+
 def deviation_tail(n=5):
     return sql(f"SELECT 编号, 偏差类型, 方向是否命中 FROM 赛事明细 "
                f"WHERE 偏差类型 IS NOT NULL ORDER BY 比赛日期 DESC LIMIT {n}")
 
 
 def status_card(sub=None):
-    L = layer_table()
     print("\n== 分层命中率（口径：方向是否命中=是 / 已结算）==")
-    for r in L:
+    for r in layer_table():
         s = r["settled"] or 0
         h = r["hit"] or 0
         pct = f"{h / s * 100:.1f}%" if s else "—"
         flag = " ← 低于60%，降权观察" if s >= 20 and h / s < 0.60 else ""
         print(f"  {str(r['tag']):12s} {h:>4}/{s:<4} {pct:>7}{flag}")
 
-    J = judge_table()
-    print("\n== 判断簿 jtype×verdict ==")
     agg = {}
-    for r in J:
+    for r in judge_table():
         agg.setdefault(r["jtype"], {})[r["verdict"]] = r["n"]
+    print("\n== 判断簿 jtype×verdict ==")
     for jt, v in agg.items():
         hit, miss = v.get("命中", 0), v.get("证伪", 0)
         total = hit + miss
@@ -130,9 +132,17 @@ def status_card(sub=None):
     for r in P[:8]:
         print(f"  {r['judgement_id']} {r['match_label']} [{r['batch']}]")
 
-    S = switches()
+    rc = rule_coverage()
+    total = rc.get("total") or 1
+    rules, sigs = rc.get("rules") or 0, rc.get("sigs") or 0
+    print("\n== 规则挂号覆盖（慢回路输入）==")
+    for label, v in (("规则触发", rules), ("临场信号", sigs)):
+        pct = v / total * 100
+        flag = "  ← 低于90%，Step5 规则矩阵不可用" if pct < 90 else ""
+        print(f"  {label} {v}/{total} = {pct:.1f}%{flag}")
+
     print("\n== 降权/基线开关 ==")
-    for r in S:
+    for r in switches():
         print(f"  {r['项目']} → {str(r['v'])[:110]}")
 
     if sub:
@@ -148,8 +158,6 @@ def status_card(sub=None):
         for r in deviation_tail():
             print(f"  {r['编号']} {r['偏差类型']}（方向{'中' if r['方向是否命中']=='是' else '错/未结算'}）")
 
-
-# ----------------------------- 写入 / 结算 -----------------------------
 
 def write_judgments(path):
     payload = json.load(open(path, encoding="utf-8"))

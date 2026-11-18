@@ -16,7 +16,7 @@ Base2 是分析结果的仓库；本 skill 让 Step 框架**读得动它**：开
 # 1. 开工先验（Step1/Step2 第一步必跑）
 python3 scripts/framework_audit.py gate --sub "<本场子层：A层|B层|C1俱乐部|C1杯赛|C2国家队|W女足>"
 
-# 2. 只看全局状态（不指定子层时）
+# 2. 只看全局状态
 python3 scripts/framework_audit.py status
 
 # 3. S1/S2 写判断（judgement_id 幂等，已存在跳过）
@@ -26,7 +26,7 @@ python3 scripts/framework_audit.py write --file judgments.json
 python3 scripts/framework_audit.py settle --file settle.json
 ```
 
-`gate` 与 `status` 输出四块：分层命中率、判断簿 jtype×verdict、未结算清单、降权/基线开关；`gate --sub` 追加该子层先验与最近 5 条偏差类型。
+`gate` 与 `status` 输出五块：分层命中率、判断簿 jtype×verdict、未结算清单、规则挂号覆盖（低于 90% 即 Step5 规则矩阵不可用）、降权/基线开关；`gate --sub` 追加该子层先验与最近 5 条偏差类型。
 
 ## 三条硬纪律
 
@@ -42,6 +42,7 @@ python3 scripts/framework_audit.py settle --file settle.json
 - **降权阈值**：已结算 ≥ 20 且命中率 < 60% → 记为「观察，只出方向不出仓位」。
 - **子层标签**：A层/B层/C1俱乐部/C1杯赛/C2国家队/W女足；回填以「赛事等级」为主信号，C 级按联赛细分（国家队/友谊/亚运 → C2国家队、含“杯” → C1杯赛、含“女” → W女足、其余 → C1俱乐部）。
 - **批次**：`YYMMDD`，取自 `统一键` 前 6 位；无统一键的历史记录留空，不用比赛日期反推。
+- **规则挂号**：`规则触发`（8 个旧体系号 R-13/共识陷阱/R-05/F53/F59/R-20/F52/R-23）与 `临场信号`（9 个新体系号 R3v2/R5/R11/R12/R14/S-13/R6/R9/R10）是 Step2 必填项；触发写编号，未触发写 `NONE`，空值=漏填。标「暂停」「推断待复核」的号不得当方向依据。
 - 字段枚举、表 token、JSON 模板见 [references/schema.md](references/schema.md)。
 
 ## 边界
