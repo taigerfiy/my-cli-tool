@@ -1,0 +1,7 @@
+interface:
+  display_name: "017首发提取"
+  short_description: "按轮次截图提取首发阵容与补充数据，核对后出两份017格式md"
+  default_prompt: "使用 $jczq-017-lineup-extract 帮我完成……"
+
+policy:
+  allow_implicit_invocation: true
