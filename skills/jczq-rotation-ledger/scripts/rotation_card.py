@@ -9,6 +9,16 @@ T_LEDGER = 'tblJiIkjupGhRBia'
 T_PLAYER = 'tbl6o4arP72RKhhL'  # 球员档案（已并入首发连续性，联赛/欧战分列字段）
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALIAS_PATH = os.path.join(SKILL_DIR, 'assets', 'alias_map.json')
+COVERED = ('英超', '西甲', '意甲', '德甲', '法甲', '欧冠', '欧罗巴')  # 017 采集范围，其他赛事无台账
+
+
+def covered(lg):
+    """赛事是否在 017 采集范围（五大联赛 + 欧冠/欧罗巴）"""
+    if not lg:
+        return None
+    return any(k in str(lg) for k in COVERED)
+
+
 LEADER_FIELDS = ['联赛', '赛季', '轮次', '球队', '主客', '对手', '比分', '赛果', '开赛时间',
                  '休息天数', '阵型', '教练', '延续人数', '轮换人数', '延续率', '确定缺阵',
                  '存疑', '停赛', '伤停原文', '首发人数', '位置结构']
@@ -38,8 +48,6 @@ def cli_read(table_id, team, fields, key_field='球队'):
                     if isinstance(v, list) and v and not isinstance(v[0], (dict, list)):
                         rec[k] = v[0]
                 out.append(rec)
-            while body.get('has_more'):
-                break
             return out
         if attempt == 2:
             raise RuntimeError(f'取数失败 {table_id} {team}: {cp.stdout[:200]} {cp.stderr[:200]}')
@@ -159,9 +167,15 @@ def render(matches, alias):
     L.append('- 数据源：Base1 轮换台账（球队×轮次）1282 条 / 球员档案（含首发连续性）2763 条（只读）')
     L.append('- 口径：延续=与上轮首发重合，轮换=首发−延续，休息=同联赛相邻轮次日期差；跨赛事不合并；球员连续性取联赛口径')
     L.append('- 生成时间：' + datetime.now().strftime('%Y-%m-%d %H:%M'))
+    L.append('- 覆盖范围：五大联赛 + 欧冠/欧罗巴（017 采集范围）；欧协联/各国次级/杯赛/国家队无台账，不出卡')
     L.append('')
+    skipped = []
     for m in matches:
         no, home_raw, away_raw = m.get('no', ''), m.get('home', ''), m.get('away', '')
+        lg = m.get('league')
+        if lg and covered(lg) is False:
+            skipped.append(f'{no} {home_raw} vs {away_raw}（{lg}）')
+            continue
         home = alias.get(home_raw, home_raw)
         away = alias.get(away_raw, away_raw)
         L.append('## ' + f'{no} {home_raw} vs {away_raw}' + (f'（{m.get("kick")}）' if m.get('kick') else ''))
@@ -197,7 +211,7 @@ def render(matches, alias):
             team, o = blocks[nm]
             L.append(f'### {nm}队 {team}')
             if not o['found']:
-                L.append('- 台账无该队记录（017 未覆盖或队名未匹配），不要用联赛均值顶替')
+                L.append('- 台账无该队记录（017 仅采集五大联赛+欧战，或队名未匹配），本场纵向基线不可用，不要用联赛均值顶替')
                 L.append('')
                 continue
             if o.get('top3'):
@@ -231,6 +245,15 @@ def render(matches, alias):
                 L.append('- ' + p)
         L.append('')
         L.append('> 本卡只呈现轮换与缺阵事实，不含方向判断、比分预测或投注建议。')
+        L.append('')
+    if skipped:
+        L.append('## 不在采集范围（不出卡）')
+        L.append('')
+        L.append('以下场次赛事不在 017 采集范围（五大联赛+欧冠/欧罗巴），无跨轮首发台账，'
+                 '纵向轮换与伤停累积**不可用**，首发判断只能靠 L7 现场采集，不得用联赛均值或相似球队替代：')
+        L.append('')
+        for x in skipped:
+            L.append('- ' + x)
         L.append('')
     return '\n'.join(L)
 
