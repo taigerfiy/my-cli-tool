@@ -2,24 +2,22 @@
 # -*- coding: utf-8 -*-
 """竞彩框架审计（Base2 读写闸）
 
-多个子命令：
-  status                全局状态卡：分层命中率 / 判断簿结算率 / 降权开关
-  gate   [--sub 子层]   开工前先验：status 全量 + 同子层命中率 + 最近偏差类型
-  write  --file f.json  写入 S1/S2 判断（judgement_id 幂等）
-  settle --file f.json  结算 S3 判定（verdict + attrib，默认跳过已结算）
+四个子命令：
+  status                全局状态卡：分层命中率 / 判断簿结算率 / 降权开关 / 累计样本
+  gate   [--sub 子层]   开工前先验：在 status 基础上加同子层近 N 条命中率与最近偏差类型
+  write  --file f.json  写入 S1/S2 判断（judgement_id 幂等，已存在则跳过）
+  settle --file f.json  结算 S3 判定（verdict + attrib），默认跳过已结算条目
 
-JSON 契约见 references/schema.md。本脚本只执行查询与写入，不做判断。
+规则来源与字段契约见 references/schema.md，本脚本只执行查询与写入，不做判断。
 """
 import argparse
 import json
 import os
 import subprocess
-
-T_JUDGE = "tblSEPpqGH5xcq84"    # 判断簿
-
+import sys
 
 def _load_token():
-    """优先级：env JCZQ_BASE2_TOKEN → references/base2.token（本地，不随仓库发布）。"""
+    """优先级：环境变量 JCZQ_BASE2_TOKEN → references/base2.token（本地，不随仓库发布）。"""
     tok = os.environ.get("JCZQ_BASE2_TOKEN")
     if tok:
         return tok.strip()
@@ -33,9 +31,13 @@ def _load_token():
 
 
 BASE2 = _load_token()
+T_DETAIL = "tblm2MroEC6fXbez"   # 赛事明细
+T_JUDGE = "tblSEPpqGH5xcq84"    # 判断簿
+T_STATE = "tbly1BxFnT2eSekR"    # 框架当前状态
 
 
-def cli(args):
+def cli(args, as_json=True):
+    """调用 lark-cli；返回解析后的 JSON（失败抛 RuntimeError，带原始报错）。"""
     p = subprocess.run(["lark-cli"] + args, capture_output=True, text=True)
     out = (p.stdout or "").strip()
     if not out:
@@ -72,11 +74,14 @@ def records(table, filter_json, fields, limit=200):
     return out
 
 
+# ----------------------------- 状态卡 -----------------------------
+
 def layer_table():
-    return sql("SELECT COALESCE(子层标签,'(空)') AS tag, COUNT(*) AS n, "
+    rows = sql("SELECT COALESCE(子层标签,'(空)') AS tag, COUNT(*) AS n, "
                "SUM(CASE WHEN 方向是否命中='是' THEN 1 ELSE 0 END) AS hit, "
                "SUM(CASE WHEN 方向是否命中 IS NOT NULL THEN 1 ELSE 0 END) AS settled "
                "FROM 赛事明细 GROUP BY 子层标签 ORDER BY settled DESC")
+    return rows
 
 
 def judge_table():
@@ -90,9 +95,8 @@ def pending_list():
 
 
 def switches():
-    return sql("SELECT 项目, src FROM 框架当前状态 LIMIT 0") if False else sql(
-        'SELECT 项目, "当前值/说明" AS v FROM 框架当前状态 '
-        "WHERE 项目 LIKE '%降权%' OR 项目 LIKE '%基线%' ORDER BY 项目 LIMIT 20")
+    return sql("SELECT 项目, \"当前值/说明\" AS v FROM 框架当前状态 "
+               "WHERE 项目 LIKE '%降权%' OR 项目 LIKE '%基线%' ORDER BY 项目 LIMIT 20")
 
 
 def deviation_tail(n=5):
@@ -101,17 +105,19 @@ def deviation_tail(n=5):
 
 
 def status_card(sub=None):
-    print("\n== 分层命中率（方向命中=是 / 已结算）==")
-    for r in layer_table():
+    L = layer_table()
+    print("\n== 分层命中率（口径：方向是否命中=是 / 已结算）==")
+    for r in L:
         s = r["settled"] or 0
         h = r["hit"] or 0
         pct = f"{h / s * 100:.1f}%" if s else "—"
         flag = " ← 低于60%，降权观察" if s >= 20 and h / s < 0.60 else ""
         print(f"  {str(r['tag']):12s} {h:>4}/{s:<4} {pct:>7}{flag}")
 
+    J = judge_table()
     print("\n== 判断簿 jtype×verdict ==")
     agg = {}
-    for r in judge_table():
+    for r in J:
         agg.setdefault(r["jtype"], {})[r["verdict"]] = r["n"]
     for jt, v in agg.items():
         hit, miss = v.get("命中", 0), v.get("证伪", 0)
@@ -124,8 +130,9 @@ def status_card(sub=None):
     for r in P[:8]:
         print(f"  {r['judgement_id']} {r['match_label']} [{r['batch']}]")
 
+    S = switches()
     print("\n== 降权/基线开关 ==")
-    for r in switches():
+    for r in S:
         print(f"  {r['项目']} → {str(r['v'])[:110]}")
 
     if sub:
@@ -142,19 +149,23 @@ def status_card(sub=None):
             print(f"  {r['编号']} {r['偏差类型']}（方向{'中' if r['方向是否命中']=='是' else '错/未结算'}）")
 
 
+# ----------------------------- 写入 / 结算 -----------------------------
+
 def write_judgments(path):
-    recs = json.load(open(path, encoding="utf-8")).get("create_records", [])
+    payload = json.load(open(path, encoding="utf-8"))
+    recs = payload.get("create_records", [])
     if not recs:
         raise SystemExit("create_records 为空")
+    ids = [r["judgement_id"] for r in recs]
     existing = set()
-    for r in recs:
-        got = records(T_JUDGE, json.dumps({"logic": "and", "conditions": [["judgement_id", "is", r["judgement_id"]]]}),
+    for jid in ids:
+        got = records(T_JUDGE, json.dumps({"logic": "and", "conditions": [["judgement_id", "is", jid]]}),
                       ["judgement_id"])
         if got:
-            existing.add(r["judgement_id"])
+            existing.add(jid)
     recs = [r for r in recs if r["judgement_id"] not in existing]
     if not recs:
-        print(f"全部已存在，跳过写入（跳过 {len(existing)} 条）")
+        print(f"全部已存在，跳过写入（{len(ids)} 条）")
         return
     d = cli(["base", "+record-batch-create", "--base-token", BASE2, "--table-id", T_JUDGE,
              "--as", "user", "--json", json.dumps({"create_records": recs}, ensure_ascii=False)])
@@ -197,6 +208,7 @@ def main():
     p.add_argument("--file", required=True)
     p.add_argument("--force", action="store_true")
     a = ap.parse_args()
+
     if a.cmd in ("status", "gate"):
         status_card(a.sub)
     elif a.cmd == "write":
