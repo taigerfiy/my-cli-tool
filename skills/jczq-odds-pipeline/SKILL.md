@@ -21,7 +21,7 @@ description: "竞彩赔率时间线的全天采样与报告流水线：11:30/13:
 | 双写老窗口（完整数据版读取） | `/home/user/.doubao/agent_mode/workspace/.sessions/38446277671972610/agents/m_0cwRti7GbEW/jczq/` |
 
 脚本清单（均无跨文件依赖，可独立运行）：
-`collect_tp.py`（采样，含 `--probe` 事件探测）、`tp_warnings.py`（预警）、`data_guard.py`（数值+页数门）、`convert_legacy_tp.py`（早段补档）、`xml_refresh_probe.py`（刷新粒度探测）、`tp_anchors.py`（事件锚点派生）、`tp_minute_watch.py`（分钟级盯盘，**默认不上线**）。
+`collect_tp.py`（采样，含 `--probe` 事件探测）、`tp_warnings.py`（预警）、`data_guard.py`（数值+页数门）、`convert_legacy_tp.py`（早段补档）、`xml_refresh_probe.py`（刷新粒度探测）、`tp_anchors.py`（事件锚点派生）、`tp_minute_watch.py`（分钟级盯盘，**默认不上线**）、`tp_ledger.py`（**字段级台账**，出「每个值自哪次采样起未变」）。
 
 ## 快照字段口径（261119 新增，勿混用）
 
@@ -37,6 +37,10 @@ description: "竞彩赔率时间线的全天采样与报告流水线：11:30/13:
 | `fetched_at` | 真实采集时刻（非名义时点） | 计算真实采样间隔 |
 | `xml_age_min` | 快照滞后分钟数 | ⚠ 上游 `updatetime` 约 60s 推进一次但内容常未变，**不能当价格新鲜度**；判新鲜度用内容哈希 |
 | `xml_hash` | 场次内容哈希（`<matches>` 段 md5 前 12 位） | 时间线去重/丢弃乱序点：hash 未变=无新信息，hash 回退=命中旧节点缓存 |
+| `seq` | **当日第 N 次采样**（261119 新增；补采点也入序，序号不跳空） | 引用某次采样的唯一短号 S01/S02…，报告里与场次号并列使用 |
+| `prev_tp` / `prev_fetched_at` | 前一次快照的名义时点 / 真实采集时刻 | 算真实采样间隔；`fetched_at - prev_fetched_at` 才是本次的信息增量窗口 |
+| `fields_changed` / `changed_vs_prev` | 与前一快照逐字段比对后的变更字段数 / 是否有变更 | 为 0 时报告必须写「本时点无新信息」，**不得**把本时点的值当成"本时点才变成的值" |
+| `changes` | 逐字段变更明细 `[{no,key,from,to}]` | 时点汇总与台账交叉核对；单场异动只取这里，不另算 |
 
 ## 采样阶梯（261119 结论；19:30/20:30 已上线，其余待 P1）
 
@@ -121,6 +125,9 @@ python3 $S/collect_tp.py --date <YYYY-MM-DD> --prefix 周X --tp <HHmm> --probe -
 #    本脚本仅在单场专项排查时手工调用，勿建定时任务）
 python3 $S/tp_minute_watch.py --date <YYYY-MM-DD> --prefix 周X --start-tp 2100 \
   --minutes 5 --interval 60 --sp-every 5 --dir $D
+
+# 10) 字段级台账（出「每个值自哪次采样起未变」；写时点报告/终报前必跑一次）
+python3 $S/tp_ledger.py --dir $D [--day <YYYYMMDD>] [--match 周XNNN]
 ```
 
 临场分钟级要点：
@@ -145,3 +152,5 @@ python3 $S/tp_minute_watch.py --date <YYYY-MM-DD> --prefix 周X --start-tp 2100 
 7. 必发未收录写「必发页未收录，无必发数据」，不得编造。
 8. 时点报告/终报/JSON 只存 008，不同步 016；全部时间为北京时间。
 9. 交接卡：每轮必读 011/04《豆包261116_竞彩会话交接卡.md》（`drive +download` 的 file-token 见本地部署版，公开仓库不写真实值），抬头照抄 11.1 三段指纹。
+10. **时点归因口径（261119 新增，硬规则）**：任何时点/终报里写价格，必须带"自哪次采样起未变"，格式「主胜 1.48 自 S06 起未变，此前 S05 为 1.55」；禁止写成「15:00 主胜 1.48」这种把区间漂移压成瞬间跳变的表述。`fields_changed=0` 的时点，结论一律标「本时点无新信息」，不得拿它当变盘证据。
+11. 上游无机构级时间戳（`odds.xml` 只有一个全局 `updatetime`），真实变价时刻不可得；只能给"首次观测"上界。结论里不得声称精确到分钟的真实变价时间，需要精度就加密采样。
