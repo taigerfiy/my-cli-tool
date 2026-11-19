@@ -17,8 +17,14 @@ P0 新增字段（261119）：
   xml_age_min —— 快照滞后：fetched_at - xml_updatetime（分钟）。>15 说明抓到的是陈旧缓存，
                  此时「频繁采样」是伪高频，不能当新信息用。
   close_gap_h —— 竞彩截止到开赛的小时差（>0 表示截止早于开赛；海外盘在截止后仍在走）
+
+采样序号与差分（261119 新增）：
+  seq            —— 当日第 N 次采样（补采点也入序，序号不跳空）
+  prev_tp / prev_fetched_at —— 前一次快照的名义时点 / 真实采集时刻
+  fields_changed / changed_vs_prev / changes —— 与前一次快照逐字段差分的字段数/布尔/明细
+  为 0 时表示本时点无新信息，报告里不得把本时点的值当成"本时点才变成的值"。
 """
-import io, re, os, sys, json, argparse, subprocess, datetime, hashlib, xml.etree.ElementTree as ET
+import io, re, os, sys, json, glob, argparse, subprocess, datetime, hashlib, xml.etree.ElementTree as ET
 
 BASE_DIR = '/home/user/Doubao/jczq_shared'
 WEEKDAY = {'周一': '1', '周二': '2', '周三': '3', '周四': '4', '周五': '5', '周六': '6', '周日': '7'}
@@ -275,6 +281,31 @@ def parse_betfa(W, fx):
     return out
 
 
+def flat_fields(r):
+    """把单场拍平成 字段→值，用于时点差分。键名与 tp_ledger / tp_minute_watch 对齐，
+    保证「时点差分」和「字段级台账」能互相印证。"""
+    out = {}
+    for bk, v in (r.get('eu') or {}).items():
+        for i, x in enumerate(v):
+            out['eu.%s.%d' % (bk, i)] = x
+    for bk, v in (r.get('asia') or {}).items():
+        out['as.%s.line' % bk] = v.get('line')
+        out['as.%s.up' % bk] = v.get('up')
+        out['as.%s.down' % bk] = v.get('down')
+    for bk, v in (r.get('dxq') or {}).items():
+        out['dx.%s.line' % bk] = v.get('line')
+        out['dx.%s.over' % bk] = v.get('over')
+        out['dx.%s.under' % bk] = v.get('under')
+    for i, x in enumerate(((r.get('sp') or {}).get('nspf') or [])[:3]):
+        out['sp.nspf.%d' % i] = x
+    for i, x in enumerate((r.get('eu_cons') or [])[:3]):
+        out['eucons.%d' % i] = x
+    for i, x in enumerate((r.get('rq_cons') or [])[:3]):
+        out['rqcons.%d' % i] = x
+    out['in_sale'] = bool(r.get('in_sale'))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--date', required=True, help='销售日期 YYYY-MM-DD')
@@ -399,6 +430,48 @@ def main():
         # 事件补采快照：标出这条是哪类事件触发的，与常规时点快照区分
         data['events'] = events
         data['trigger'] = 'probe'
+
+    # ---- 采样序号 + 相对前一时点差分（261119 新增）----
+    # 约定：timepoint 是"名义时点"，seq 是"当日第 N 次采样"（补采点也入序，序号不跳空）；
+    # 真正的时刻看 fetched_at，前一时点的时刻看 prev_fetched_at。
+    # fields_changed = 与前一快照逐字段比对后的变更字段数；为 0 说明本时点无新信息，
+    # 报告里不得把"本时点的值"当成"本时点才变成的值"。
+    day8 = a.date.replace('-', '')
+    others = []
+    for x in glob.glob('%s/all_%s_*.json' % (WROOT, day8)):
+        if x.endswith('_%s.json' % a.tp):
+            continue
+        try:
+            d2 = json.load(open(x, encoding='utf-8'))
+        except Exception:
+            continue
+        if d2.get('timepoint'):
+            others.append(d2)
+    others.sort(key=lambda d: d['timepoint'])
+    data['seq'] = 1 + sum(1 for d2 in others if d2['timepoint'] < a.tp)
+    prev = [d2 for d2 in others if d2['timepoint'] < a.tp]
+    prev = prev[-1] if prev else None
+    n_changed = None
+    changed_list = []
+    if prev:
+        pidx = {m.get('no'): flat_fields(m) for m in (prev.get('matches') or [])}
+        n_changed = 0
+        for r in out:
+            pf, f = pidx.get(r['no']), flat_fields(r)
+            if not pf:
+                n_changed += len(f)
+                changed_list.append({'no': r['no'], 'key': '*', 'from': None, 'to': 'new'})
+                continue
+            for k, v in f.items():
+                if pf.get(k) != v:
+                    n_changed += 1
+                    changed_list.append({'no': r['no'], 'key': k, 'from': pf.get(k), 'to': v})
+    data['prev_tp'] = prev.get('timepoint') if prev else None
+    data['prev_fetched_at'] = prev.get('fetched_at') if prev else None
+    data['fields_changed'] = n_changed
+    data['changed_vs_prev'] = (n_changed > 0) if n_changed is not None else None
+    data['changes'] = changed_list
+
     p1 = '%s/all_%s_%s.json' % (WROOT, a.date.replace('-', ''), a.tp)
     os.makedirs(os.path.dirname(p1), exist_ok=True)
     json.dump(data, open(p1, 'w'), ensure_ascii=False, indent=1)
@@ -414,7 +487,13 @@ def main():
         p2 = '（双写已退役，仅共享根）'
         dual = 'SKIP'
 
-    print('时点 %s｜场次 %d｜xml updatetime %s' % (a.tp, len(out), upd))
+    print('时点 %s｜序号 S%02d｜场次 %d｜xml updatetime %s' % (a.tp, data['seq'], len(out), upd))
+    print('真实采集 %s｜滞后 %s 分｜前一时点 %s（%s）｜变更 %s 字段%s' % (
+        data['fetched_at'],
+        ('%.1f' % data['xml_age_min']) if data['xml_age_min'] is not None else '-',
+        data['prev_tp'] or '无', data['prev_fetched_at'] or '无',
+        data['fields_changed'] if data['fields_changed'] is not None else '-',
+        '' if data['fields_changed'] else '（本时点无新信息）'))
     ncons = sum(1 for r in out if r.get('eu_cons'))
     nsp = sum(1 for r in out if r.get('sp', {}).get('nspf'))
     gaps = [r['close_gap_h'] for r in out if r.get('close_gap_h') is not None]
