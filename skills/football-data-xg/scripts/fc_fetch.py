@@ -183,6 +183,28 @@ def _date(s):
     return None
 
 
+def _cn_slug(league, name):
+    """中文队名 → slug（读 references/team_names_cn.csv：cn,league,slug）"""
+    if not name or not any("\u4e00" <= c <= "\u9fff" for c in name):
+        return None
+    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "references", "team_names_cn.csv")
+    if not os.path.exists(p):
+        return None
+    key = name.strip()
+    d = {}
+    with open(p, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            d[(r["league"], r["cn"])] = r["slug"]
+            d.setdefault(r["cn"], r["slug"])
+    for cand in (key, key.replace("足球俱乐部", ""), key.replace("俱乐部", "")):
+        if (league, cand) in d:
+            return d[(league, cand)]
+        if cand in d:
+            return d[cand]
+    return None
+
+
 def _fd_lookup(fd, name):
     """先精确归一匹配，再用首词相等兜底（PSV↔PSV Eindhoven、Sporting CP↔Sporting Lisbon）"""
     n = _norm(name)
@@ -473,6 +495,10 @@ def main():
     if args.last:
         params["last"] = args.last
     if args.cmd == "team":
+        mapped = _cn_slug(args.league, args.team or "")
+        if mapped:
+            print(f"[映射] {args.team} → {mapped}")
+            args.team = mapped
         d = _get(path, params=params, no_cache=args.no_cache, allow_fail=True)
         if d is None:
             # slug 不对就按队名在本联赛球队表里归一匹配
