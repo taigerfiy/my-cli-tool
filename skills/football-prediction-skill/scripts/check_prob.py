@@ -56,11 +56,13 @@ def main() -> int:
         if ok:
             s = sum(probs[k] for k in ("home", "draw", "away"))
             ok = 0.985 <= s <= 1.015
-        comp = mid_league = (p.get("match") or {}).get("league")
-        known = TEAMS.get(mid_league)
+        _m = p.get("match") or {}
+        known = TEAMS.get(_m.get("league"))
+        # 本地化之后 match.home 已变中文，用 *_model 字段还原模型实际用的队名
+        home_key = _m.get("home_model") or _m.get("home")
+        away_key = _m.get("away_model") or _m.get("away")
         phantom = (ok and p.get("analysis_mode") == "statistical" and known is not None
-                   and ((p.get("match") or {}).get("home") not in known
-                        or (p.get("match") or {}).get("away") not in known))
+                   and (home_key not in known or away_key not in known))
         mid = (p.get("match") or {})
         rows.append({
             "match_no": mid.get("match_no"), "league": mid.get("league"),

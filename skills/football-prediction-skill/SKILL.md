@@ -132,6 +132,7 @@ football-predict models
 |---|---|
 | `scripts/build_models.py` | 批量训练/列模型/导出 `references/models_status.md` |
 | `scripts/rewrite_matches.py` | 中文队名 → 模型规范名（不跑这步模型等于没接） |
+| `scripts/localize_outputs.py` | 出报告后把英文队名还原中文（HTML + prediction） |
 | `scripts/check_prob.py` | 概率门禁：null 与“模型空转”都非零退出 |
 | `references/team_alias_cn.csv` | 中文队名 → football-data 缩写名（116 条，五大联赛） |
 | `references/models_status.md` | 模型库现状（自动生成，勿手改） |
@@ -146,6 +147,11 @@ python3 scripts/build_models.py --status
 python3 scripts/rewrite_matches.py /tmp/football-predict-YYYY-MM-DD/matches_YYYY-MM-DD.json \
   --out /tmp/football-predict-YYYY-MM-DD/matches_en_YYYY-MM-DD.json
 
+# 出报告后本地化：英文队名 → 中文（HTML 的 CSS 段自动跳过）
+python3 scripts/localize_outputs.py \
+  --pred /tmp/football-predict-YYYY-MM-DD/prediction_YYYY-MM-DD.json \
+  --html /tmp/football-predict-YYYY-MM-DD/report_YYYY-MM-DD.html --inplace
+
 # 发布前门禁：0 = 全有概率；1 = 有 null 或“模型空转”
 python3 scripts/check_prob.py /tmp/football-predict-YYYY-MM-DD/prediction_YYYY-MM-DD.json
 ```
@@ -158,6 +164,7 @@ python3 scripts/check_prob.py /tmp/football-predict-YYYY-MM-DD/prediction_YYYY-M
 - 无可用模型且比赛输入没有 HAD 赔率时，`final_probs` 必为 null —— 这种产物一律由 `check_prob.py` 拦下，不许进入日报。
 - **中文队名必须改写**：`sync` 产出的是“曼城 / 马竞 / 布伦特”这类中文短名，而模型键是 `Man City / Ath Madrid / Brentford`。不改名时模型会拿联赛均值硬算一篇 `statistical`，概率有值但完全不可用（“模型空转”）。`check_prob.py` 会把“statistical 但队名不在模型队列表”判为失败。
 - 未被模型覆盖的联赛（瑞超/巴甲/美职/法乙…）保持中文原样即可，`daily` 自然走 `market_baseline`。
+- 出报告顺序固定为：`rewrite_matches` → `daily --input matches_en` → `localize_outputs --inplace` → `check_prob`。本地化后 `prediction` 的 `match.home/away` 是中文，模型实际用的英文名保存在 `home_model/away_model`，门禁读后者，所以顺序先后都不会误判。
 
 
 每日预测赛后可结算：
