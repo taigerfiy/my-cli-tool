@@ -272,6 +272,117 @@ def team_csv(res, outdir, league):
           f" · 场均 xG {stats.get('xg_avg')} / xGa {stats.get('xg_against_avg')}")
 
 
+LEAGUE_CN_TO_KEY = {"英超": "premier", "西甲": "spain1", "意甲": "italy1",
+                    "德甲": "germany1", "法甲": "france1",
+                    "荷甲": "holland1", "葡超": "portugal1"}
+
+
+def _load_cn_alias():
+    """中文队名 -> 英文 slug（读 skill 自带 team_names_cn.csv）。"""
+    fp = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      "references", "team_names_cn.csv")
+    out = {}
+    if os.path.exists(fp):
+        for r in csv.DictReader(open(fp, encoding="utf-8-sig")):
+            cn, slug = (r.get("cn") or "").strip(), (r.get("slug") or "").strip()
+            if cn and slug:
+                out[cn] = slug
+    return out
+
+
+def _crosscheck_day(args, keys):
+    """按日期把第二源赛果与主源（澳客 results_*.json）逐场对照；只校验，不覆盖主源。"""
+    date = args.date
+    rd = json.load(open(args.results_json, encoding="utf-8"))
+    rows = rd.get("matches") or []
+    alias = _load_cn_alias()
+    raw = {}
+    for lg in keys:
+        if lg in LEAGUE_CODE:
+            res = _get(f"/leagues/{lg}/results/", no_cache=args.no_cache)
+            raw[lg] = res.get("matches") or []
+    eff = date
+    fc_by_league = {lg: [m for m in ms if str(m.get("date") or "")[:10] == eff]
+                    for lg, ms in raw.items()}
+    lag = ""
+    if sum(len(v) for v in fc_by_league.values()) == 0:
+        # 第二源赛果有 T+1 滞后：同日 0 场时，退到第二源最近一个有赛果的日期
+        cand = [str(m.get("date"))[:10] for ms in raw.values() for m in ms
+                if str(m.get("date") or "")[:10] <= date]
+        eff = max(cand) if cand else date
+        fc_by_league = {lg: [m for m in ms if str(m.get("date") or "")[:10] == eff]
+                        for lg, ms in raw.items()}
+        alt = os.path.join(os.path.dirname(os.path.abspath(args.outdir or ".")),
+                           f"review_{eff.replace('-', '')[2:]}",
+                           f"results_{eff.replace('-', '')[2:]}.json")
+        if eff != date and os.path.exists(alt):
+            rows = json.load(open(alt, encoding="utf-8")).get("matches") or []
+            lag = f"（第二源滞后，实际校验 {eff}，主源取 {os.path.basename(alt)}）"
+        elif eff != date:
+            print(f"对账日期 {date}｜第二源滞后：FC 最新赛果止于 {eff}，本日无同日可校验场次")
+            print("本日跳过逐场校验，主源比分不受影响")
+            if args.outdir:
+                os.makedirs(args.outdir, exist_ok=True)
+                outp = os.path.join(args.outdir, f"result_check_{date}.md")
+                with open(outp, "w", encoding="utf-8") as f:
+                    f.write(f"# 第二源赛果对账 {date}\n\n第二源滞后：FC 最新赛果止于 {eff}，本日跳过逐场校验。\n")
+                print(f"[写入] {outp}")
+            return 0
+
+    lines, same, bad, only_main, skipped = [], 0, 0, 0, 0
+    for m in rows:
+        cn_league = (m.get("league") or "").strip()
+        lg = LEAGUE_CN_TO_KEY.get(cn_league)
+        if not lg:
+            skipped += 1
+            continue
+        slug_h, slug_a = alias.get(m.get("home", "")), alias.get(m.get("away", ""))
+        if not slug_h or not slug_a:
+            skipped += 1
+            lines.append(f"- {m.get('no')} {cn_league} {m.get('home')}v{m.get('away')}：队名未映射，跳过")
+            continue
+        hit = None
+        for cand in fc_by_league.get(lg) or []:
+            nh, na = _norm(cand.get("homeTeam")), _norm(cand.get("awayTeam"))
+            sh, sa = _norm(slug_h), _norm(slug_a)
+            if (sh in nh or nh in sh) and (sa in na or na in sa):
+                hit = cand
+                break
+        main_ft = (m.get("ft") or "").replace("-", ":")
+        main_ht = (m.get("ht") or "").replace("-", ":")
+        if not hit:
+            only_main += 1
+            lines.append(f"- {m.get('no')} {cn_league} {m.get('home')}v{m.get('away')}：第二源无此场（主源 {main_ft}）")
+            continue
+        fc_ft = str(hit.get("score") or "").replace("-", ":")
+        fc_ht = str(hit.get("ht_result") or "").replace("-", ":")
+        if fc_ft == main_ft:
+            same += 1
+            tag = "一致"
+        else:
+            bad += 1
+            tag = "不一致⚠"
+        lines.append(f"- {m.get('no')} {cn_league} {m.get('home')}v{m.get('away')}："
+                     f"主源 {main_ft}(半{main_ht}) / 第二源 {fc_ft}(半{fc_ht}) {tag}")
+
+    fc_total = sum(len(v) for v in fc_by_league.values())
+    print(f"对账日期 {date}｜主源 {len(rows)} 场｜第二源 {fc_total} 场{lag}")
+    print(f"可比 {same + bad}｜比分一致 {same}｜不一致 {bad}｜主源独有 {only_main}｜未映射/非覆盖 {skipped}")
+    for ln in lines:
+        print(ln)
+    print(f"\n[归因] Data by football-charts.com（第二源赛果）· 抓取 "
+          f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%MZ')}")
+    if args.outdir:
+        os.makedirs(args.outdir, exist_ok=True)
+        outp = os.path.join(args.outdir, f"result_check_{date}.md")
+        with open(outp, "w", encoding="utf-8") as f:
+            f.write(f"# 第二源赛果对账 {date}{lag}\n\n第二源 {fc_total} 场｜主源 {len(rows)} 场\n\n"
+                    + "\n".join(lines)
+                    + f"\n\n可比 {same + bad}｜一致 {same}｜不一致 {bad}｜主源独有 {only_main}\n")
+        print(f"[写入] {outp}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["leagues", "results", "table", "team", "fixtures", "acheck", "dual", "resultcheck"])
@@ -284,6 +395,8 @@ def main():
     ap.add_argument("--top", type=int, default=6, help="dual 每联赛取前 N 队")
     ap.add_argument("--fd-dir", help="football-data 产出目录（含 英超_teams_xg.csv）")
     ap.add_argument("--no-cache", action="store_true")
+    ap.add_argument("--date", help="resultcheck 用：只对账这一天的比赛，YYYY-MM-DD")
+    ap.add_argument("--results-json", help="resultcheck 用：主源 results_*.json（澳客赛果）")
     args = ap.parse_args()
 
     if args.cmd == "leagues":
@@ -296,6 +409,9 @@ def main():
 
 
     if args.cmd == "resultcheck":
+        if args.date and args.results_json:
+            return _crosscheck_day(args, (args.leagues or
+                    "premier,spain1,italy1,germany1,france1,holland1,portugal1").split(","))
         keys = (args.leagues or "premier,spain1,italy1,germany1,france1,holland1,portugal1").split(",")
         fdirs = ([args.fd_dir] if args.fd_dir else []) + [
             "fd", "./数据分析/footballcharts/fd",
