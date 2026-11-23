@@ -23,3 +23,4 @@
 - 261117：`skill-scout` 索引 69 个已装技能； 5 条回归用例（联赛报告 0.67 / 云盘转 md 0.82 / xG 0.83 / 周报摘要 0.22 / 海报 0.25）全部命中预期技能。
 - 261119：`jczq-odds-pipeline` 首次入库（SKILL.md + 7 个脚本）；远端 7 个 .py 逐个拉回 `py_compile` 通过，与本地源逐字节一致。
 - 261123：`football-data-xg` 整包入库（SKILL.md + references/leagues.md + xg_fetch.py/fc_fetch.py），本地备份文件 `.bak` 未入库；远端大小核对一致。
+- 261123：`fc_fetch.py` 新增 `dual`（双源 xG 对照）与 `resultcheck`（赛果对账）。实测：dual 7 联赛前 6 队 42 队中 41 队匹配，仅 Bayern 出现双差（样本差一轮）；resultcheck 可比 637 场，全场与半场比分**零不一致**，首球分钟覆盖 602 场（94.5%）。免费档 200 次/天已确认生效（`~/.fc_api_key`）。
