@@ -1,12 +1,16 @@
 ---
 name: jczq-framework-audit
 display_name: "竞彩框架审计"
-description: "读写 Base2 竞彩分析库，把历史结果变成框架的先验与裁决：开工前查分层命中率/降权开关/偏差类型，S1–S2 写判断入判断簿，S3 按赛果结算 verdict 与归因。适用于：跑 Step1/Step2 前要“先看历史再判断”、Step3 复盘后要把判断闭环、要统计 jtype×命中率或子层命中率、要查某维度是否已降权、要核对判断簿未结算条目、要做 Step5 前置的样本与结算率体检。"
+description: "读写本地竞彩结算台账（ledger_YYYY.csv，取代已删除的 Base2），把历史结果变成框架的先验与裁决：开工前查分层命中率/降权开关/偏差类型，S1–S2 写判断入判断簿，S3 按赛果结算 verdict 与归因。适用于：跑 Step1/Step2 前要“先看历史再判断”、Step3 复盘后要把判断闭环、要统计 jtype×命中率或子层命中率、要查某维度是否已降权、要核对判断簿未结算条目、要做 Step5 前置的样本与结算率体检。"
 ---
 
 # 竞彩框架审计
 
-Base2 是分析结果的仓库；本 skill 让 Step 框架**读得动它**：开工拿先验，收口必结算，按维度自动降权。
+> **数据源已切换（2026-11-23 重构）**：Base2（`GYwebugn8ar6J3sQhPhcz3Dvnwb`）已被删除且不重建，本 skill 改用**本地台账** `/home/user/Doubao/jczq_shared/ledger/ledger_YYYY.csv` + `baseline.json`。`references/base2.token` 仅作历史遗留，不再被读取；调用方式（`status / gate / write / settle`）保持不变，Step 任务无需改命令。
+
+本地台账是分析结果的落点；本 skill 让 Step 框架**读得动它**：开工拿先验，收口必结算，按维度自动降权。
+
+> 台账口径：`ledger_2026.csv` 是结算主表（`ledger.py` 写），`pending_judgments.json` 是赛前判断暂存。结算表契约要求 `verdict` 必填，所以 `write` 只入 pending，Step3 用 `settle` 合并后一次落行——这是 2026-11-23 修掉的一个真 bug（旧实现会把未结算判断直接写 CSV，被 ledger.py 拒）。
 
 只做查询、写入、结算；不做方向判断，不改 Step 规则，不动 Step5 门槛。
 
@@ -16,7 +20,7 @@ Base2 是分析结果的仓库；本 skill 让 Step 框架**读得动它**：开
 # 1. 开工先验（Step1/Step2 第一步必跑）
 python3 scripts/framework_audit.py gate --sub "<本场子层：A层|B层|C1俱乐部|C1杯赛|C2国家队|W女足>"
 
-# 2. 只看全局状态
+# 2. 只看全局状态（不指定子层时）
 python3 scripts/framework_audit.py status
 
 # 3. S1/S2 写判断（judgement_id 幂等，已存在跳过）
@@ -47,7 +51,7 @@ python3 scripts/framework_audit.py settle --file settle.json
 
 ## 边界
 
-- 只读写 Base2 的四张表（赛事明细 / 判断簿 / 框架当前状态 / Step2建议追踪），**不写 Base1**（Base1 由定时任务导入已完赛纯数据，与本流程解耦）。
+- 只读写本地台账（`ledger_YYYY.csv` / `pending_judgments.json` / `baseline.json`），**不写 Base1**，也不再读写 Base2（Base1 由定时任务导入已完赛纯数据，与本流程解耦）。
 - 不因本 skill 结论下调 Step5 的 30 场门槛；门槛是防过拟合的刻意设计。
 - 分级经验隔离：C 级 / C2 国家队结论只作观察层，不回流 A/B 级通用规则。
 - `euro_asia` 类判断当前命中 33%，仅作描述、不作方向依据；`score_parts` 0/3，总进球与比分判断须以终采盘口线为锚。
