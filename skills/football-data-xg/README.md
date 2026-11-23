@@ -8,10 +8,8 @@
 SKILL.md                  # 工作流、口径边界、判读规则
 references/leagues.md     # 联赛代码表（E0/SP1/I1/D1/F1/N1/P1…）
 scripts/xg_fetch.py       # 主源：football-data.co.uk 实测 xG/xGa
-automation/scripts/fc_fetch.py  # 第二源：football-charts REST 适配（leagues/results/table/team/fixtures/acheck/dual/resultcheck）
+scripts/fc_fetch.py       # 第二源：football-charts REST 适配（leagues/results/table/team/fixtures/acheck/dual/resultcheck）
 ```
-
-> 代码本体待在本地 git/gh 凭据就绪后整包推送，避免内联转录造成失真。
 
 ## 两个源的分工
 
