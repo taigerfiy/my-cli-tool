@@ -144,19 +144,25 @@ python3 scripts/fc_fetch.py acheck                        # 逐联赛抽 1 队�
 # 双源 xG 对照：7 联赛各取前 N 队，与 football-data 逐队比（默认 top6 → 7*(1+6)=49 次额度）
 python3 scripts/fc_fetch.py dual --top 6 --outdir ./数据分析/footballcharts
 
-# 赛果对账：FC 赛果（含半场/首球分钟）与 football-data 原始 CSV 逐场比
+# 赛果对账（整季）：FC 赛果（含半场/首球分钟）与 football-data 原始 CSV 逐场比
 python3 scripts/fc_fetch.py resultcheck --outdir ./数据分析/footballcharts
+
+# 赛果对账（单日，Step3 复盘用）：与澳客主源 results_*.json 逐场比
+python3 scripts/fc_fetch.py resultcheck --date 2026-11-21 \
+  --results-json ../jczq_shared/review_261121/results_261121.json --outdir /tmp/rc
 ```
 
 **判读规则（dual）**：ΔxG 与 ΔxGa 同时 > 0.10 → `⚠双差`，回 football-data 复核；只有 ΔxGa > 0.10 → `⚠`，先看样本差（FC 常比 football-data 多一轮）；其余 `ok`。
 
 **判读规则（resultcheck）**：全场/半场不一致应为 0。出现不一致 → 该场两边必有一错，回官方赛果核对。`仅FC有` 多为 football-data 尚未入库的新轮次（T+1 延迟），不是缺数据。
 
+**单日模式（`--date` + `--results-json`，2026-11-23 起用于 Step3）**：只拉当日 7 个联赛的 results（约 7 次额度），把 FC 比分与澳客主源逐场比。退出码 1 = 有全场不一致。**FC 赛果有 T+1 滞后**（实测 11-23 上午最新赛果止于 11-21）：同日 0 场时脚本自动退到 FC 最近有赛果的日期，若 `../review_<该日>/results_*.json` 存在则改校验那一天（输出标「第二源滞后，实际校验 X」）；不存在则打印「本日跳过逐场校验」并以 0 退出——这是滞后不是失败，不得降级 degraded。**澳客是唯一主源，FC 只校验不改账**；欧战/杯赛/瑞超/巴甲/美职/法乙等一律「第二源无覆盖」；中文队名未映射的单列，不模糊强行匹配。首日实测（2026-11-21 订单日）：主源 22 场 → 可比 17、一致 17、不一致 0、未映射/非覆盖 5。
+
 **2026-11-23 首跑基线**：dual 42 队 → 41 队可选、除 Sporting CP 外全部匹配；resultcheck 可比 637 场，**全场不一致 0 / 半场不一致 0**，首球分钟覆盖 602 场（94.5%）。这条已证明两源比分可信，可当 Step3 复盘的第二校验源。
 
 ### 中文队名 → slug 映射（2026-11-23 补，链路上线前置）
 
-竞彩清单里的队名是中文（「特温特」「威廉二世」「尤文图斯」），接口只认 slug，所以 `references/team_names_cn.csv` 是必需件，格式 `cn,league,slug`，现 191 行（五大 ~120 + 荷甲 22 + 葡超 22 + 常见简称）。
+竞彩清单里的队名是中文（「特温特」「威廉二世」「尤文图斯」），接口只认 slug，所以 `references/team_names_cn.csv` 是必需件，格式 `cn,league,slug`，现 208 行（五大 ~130 + 荷甲 22 + 葡超 22 + 竞彩短称如「热刺」「维拉」「莱红牛」「埃沃斯堡」「马竞」「AC米兰」）。
 
 - `team` 子命令会自动查表：`[映射] 巴萨 → barcelona`；查不到则退化到「按英文名在本联赛队表里归一匹配」
 - 两者都失败 → 明确报 `[404] <联赛> 下找不到队 <名>`，**不要瞎猜 slug**
